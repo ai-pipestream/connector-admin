@@ -64,7 +64,9 @@ services:
       done;
       mysql -h mysql-test -u root -prootpassword -e \"
       CREATE DATABASE IF NOT EXISTS apicurio_registry;
+      CREATE DATABASE IF NOT EXISTS pipeline_connector_test;
       GRANT ALL PRIVILEGES ON apicurio_registry.* TO 'pipeline'@'%';
+      GRANT ALL PRIVILEGES ON pipeline_connector_test.* TO 'pipeline'@'%';
       FLUSH PRIVILEGES;
       \"
       "
