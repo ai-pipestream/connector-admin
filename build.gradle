@@ -35,7 +35,7 @@ dependencies {
     implementation 'io.smallrye.stork:stork-service-registration-consul'
 
     // Password hashing
-    implementation 'com.password4j:password4j:1.7.3'
+    implementation libs.password4j
 
     // Pipeline libraries (published to Maven Local)
     implementation 'io.pipeline:grpc-stubs:1.0.0-SNAPSHOT'
