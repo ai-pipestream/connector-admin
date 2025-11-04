@@ -1,0 +1,2 @@
+-- Test data import (currently empty - tests create their own data)
+-- This file is required by quarkus.hibernate-orm.sql-load-script configuration
