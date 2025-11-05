@@ -134,7 +134,7 @@ publishing {
             url = uri("https://git.rokkon.com/api/packages/io-pipeline/maven")
             credentials {
                 username = project.findProperty("gitea.user") ?: System.getenv("GIT_USER") ?: "krickert"
-                password = project.findProperty("gitea.token") ?: System.getenv("GIT_TOKEN")
+                password = project.findProperty("gitea.token") ?: System.getenv("GIT_PAT")
             }
         }
     }
