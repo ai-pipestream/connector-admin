@@ -8,7 +8,7 @@ dependencies {
     implementation 'io.quarkus:quarkus-container-image-docker'
     
     // Dev services infrastructure (shared Docker Compose stack)
-    runtimeOnly 'io.pipeline:devservices-docker-compose:1.0.0-SNAPSHOT'
+    implementation 'io.pipeline:quarkus-pipeline-devservices:1.0.0-SNAPSHOT'
     
     // Use published BOM from Maven Local
     implementation platform('io.pipeline:pipeline-bom:1.0.0-SNAPSHOT')
