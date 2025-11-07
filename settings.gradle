@@ -1,7 +1,7 @@
 pluginManagement {
     repositories {
         // Check if running on GitHub Actions
-        def isGitHubActions = System.getenv("GITHUB_ACTIONS") == "true"
+        def isGitHubActions = System.getenv("GITHUB_ACTIONS") == "true" && System.getenv("GITEA_ACTIONS") == null
 
         if (isGitHubActions) {
             // GitHub Actions: Use public plugin portal directly
@@ -31,7 +31,7 @@ dependencyResolutionManagement {
 
     repositories {
         // Check if running on GitHub Actions (use public repos)
-        def isGitHubActions = System.getenv("GITHUB_ACTIONS") == "true"
+        def isGitHubActions = System.getenv("GITHUB_ACTIONS") == "true" && System.getenv("GITEA_ACTIONS") == null
 
         if (isGitHubActions) {
             // GitHub Actions: Use GitHub Packages for io.pipeline artifacts
