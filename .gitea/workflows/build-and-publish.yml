@@ -81,6 +81,8 @@ jobs:
 
       - name: Build and push Docker image with Quarkus
         env:
+          QUARKUS_CONTAINER_IMAGE_REGISTRY: git.rokkon.com
+          QUARKUS_CONTAINER_IMAGE_GROUP: io-pipeline
           QUARKUS_CONTAINER_IMAGE_USERNAME: ${{ secrets.GIT_USER }}
           QUARKUS_CONTAINER_IMAGE_PASSWORD: ${{ secrets.GIT_PAT }}
           REPOS_PAT: ${{ secrets.REPOS_PAT }}
