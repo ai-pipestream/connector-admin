@@ -104,9 +104,13 @@ jobs:
           QUARKUS_CONTAINER_IMAGE_USERNAME: ${{ secrets.GIT_USER }}
           QUARKUS_CONTAINER_IMAGE_PASSWORD: ${{ secrets.GIT_PAT }}
           REPOS_PAT: ${{ secrets.REPOS_PAT }}
+          GIT_USER: ${{ secrets.GIT_USER }}
+          GIT_PAT: ${{ secrets.GIT_PAT }}
         run: |
           ./gradlew build -x test \
             -Dquarkus.container-image.build=true \
             -Dquarkus.container-image.push=true \
+            -Dquarkus.container-image.registry=git.rokkon.com \
+            -Dquarkus.container-image.group=io-pipeline \
             -Dquarkus.container-image.additional-tags=${{ gitea.sha }} \
             --no-daemon
