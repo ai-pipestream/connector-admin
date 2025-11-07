@@ -59,7 +59,7 @@ jobs:
           REPOS_PAT: ${{ secrets.REPOS_PAT }}
           GIT_USER: ${{ secrets.GIT_USER }}
           GIT_PAT: ${{ secrets.GIT_PAT }}
-        run: ./gradlew publish --no-daemon
+        run: ./gradlew publishMavenPublicationToMavenLocalRepository publishMavenPublicationToReposiliteRepository publishMavenPublicationToGiteaRepository --no-daemon
 
   docker:
     runs-on: ubuntu-latest
