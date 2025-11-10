@@ -99,8 +99,8 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-        - name: Build and push Docker image with Quarkus
-          env:
+      - name: Build and push Docker image with Quarkus
+        env:
             QUARKUS_CONTAINER_IMAGE_REGISTRY: ghcr.io
             QUARKUS_CONTAINER_IMAGE_GROUP: ai-pipestream
             QUARKUS_CONTAINER_IMAGE_USERNAME: ${{ github.actor }}
