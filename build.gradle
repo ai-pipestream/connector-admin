@@ -2,16 +2,20 @@ plugins {
     alias(libs.plugins.java)
     alias(libs.plugins.quarkus)
     alias(libs.plugins.maven.publish)
+    id 'signing'
+    id 'com.gradleup.nmcp' version '1.2.0'
 }
+
+def pipelineBomVersion = findProperty('pipelineBomVersion') ?: '0.1.2-SNAPSHOT'
 
 dependencies {
     implementation 'io.quarkus:quarkus-container-image-docker'
-    
+
     // Dev services infrastructure (shared Docker Compose stack)
-    implementation 'io.pipeline:quarkus-pipeline-devservices:1.0.0-SNAPSHOT'
+    implementation libs.pipestream.compose.devservices
     
     // Use published BOM from Maven Local
-    implementation platform('io.pipeline:pipeline-bom:1.0.0-SNAPSHOT')
+    implementation platform("ai.pipestream:pipeline-bom:${pipelineBomVersion}")
 
     // Core Quarkus dependencies
     implementation 'io.quarkus:quarkus-hibernate-orm-panache'
@@ -38,20 +42,22 @@ dependencies {
     implementation libs.password4j
 
     // Pipeline libraries (published to Maven Local)
-    implementation 'io.pipeline:grpc-stubs:1.0.0-SNAPSHOT'
-    implementation 'io.pipeline:dynamic-grpc-registration-clients:1.0.0-SNAPSHOT'
-    implementation 'io.pipeline:dynamic-grpc:1.0.0-SNAPSHOT'
+    testImplementation libs.pipestream.grpc.wiremock
+    // Pipestream libraries - versions managed entirely by the BOM/catalog
+    implementation libs.pipestream.grpc.stubs
+    implementation libs.pipestream.commons
+    implementation libs.pipestream.dynamic.grpc
+    implementation libs.pipestream.dynamic.grpc.registration.clients
 
     // Test dependencies
     testImplementation 'io.quarkus:quarkus-junit5'
-    testImplementation 'io.pipeline:grpc-wiremock:1.0.0-SNAPSHOT'
     testImplementation libs.smallrye.reactive.messaging.in.memory
     integrationTestImplementation 'io.grpc:grpc-netty-shaded'
     integrationTestImplementation 'io.grpc:grpc-protobuf'
     integrationTestImplementation 'io.grpc:grpc-stub'
 }
 
-group = 'io.pipeline'
+group = 'ai.pipestream'
 version = '1.0.0-SNAPSHOT'
 
 java {

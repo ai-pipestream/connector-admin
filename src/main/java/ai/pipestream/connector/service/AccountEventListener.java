@@ -1,8 +1,8 @@
-package io.pipeline.connector.service;
+package ai.pipestream.connector.service;
 
-import io.pipeline.repository.account.AccountEvent;
-import io.pipeline.connector.entity.ConnectorAccount;
-import io.pipeline.connector.repository.ConnectorRepository;
+import ai.pipestream.repository.account.AccountEvent;
+import ai.pipestream.connector.entity.ConnectorAccount;
+import ai.pipestream.connector.repository.ConnectorRepository;
 import io.smallrye.reactive.messaging.annotations.Blocking;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -28,7 +28,7 @@ import java.util.List;
  *
  * Side effects:
  * <ul>
- *   <li>Writes to the connectors table via {@link io.pipeline.connector.repository.ConnectorRepository} to enable/disable connectors.</li>
+ *   <li>Writes to the connectors table via {@link ConnectorRepository} to enable/disable connectors.</li>
  *   <li>Emits INFO/WARN logs for auditing.</li>
  * </ul>
  */
@@ -52,7 +52,7 @@ public class AccountEventListener {
      * - Handler is idempotent to tolerate at-least-once delivery.
      *
      * Side effects:
-     * - Writes to the connectors table via {@link io.pipeline.connector.repository.ConnectorRepository}.
+     * - Writes to the connectors table via {@link ConnectorRepository}.
      * - Emits INFO/WARN logs for auditing and diagnostics.
      *
      * @param event Account event payload carrying the operation and account identifier.

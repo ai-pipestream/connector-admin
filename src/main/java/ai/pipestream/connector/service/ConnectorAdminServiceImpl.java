@@ -1,28 +1,28 @@
-package io.pipeline.connector.service;
+package ai.pipestream.connector.service;
 
 import com.google.protobuf.Timestamp;
 import io.grpc.Status;
-import io.pipeline.connector.entity.Connector;
-import io.pipeline.connector.intake.ConnectorRegistration;
-import io.pipeline.connector.util.ConnectorMetadata;
-import io.pipeline.connector.intake.DeleteConnectorRequest;
-import io.pipeline.connector.intake.DeleteConnectorResponse;
-import io.pipeline.connector.intake.GetConnectorRequest;
-import io.pipeline.connector.intake.ListConnectorsRequest;
-import io.pipeline.connector.intake.ListConnectorsResponse;
-import io.pipeline.connector.intake.MutinyConnectorAdminServiceGrpc;
-import io.pipeline.connector.intake.RegisterConnectorRequest;
-import io.pipeline.connector.intake.RegisterConnectorResponse;
-import io.pipeline.connector.intake.RotateApiKeyRequest;
-import io.pipeline.connector.intake.RotateApiKeyResponse;
-import io.pipeline.connector.intake.SetConnectorStatusRequest;
-import io.pipeline.connector.intake.SetConnectorStatusResponse;
-import io.pipeline.connector.intake.UpdateConnectorRequest;
-import io.pipeline.connector.intake.UpdateConnectorResponse;
-import io.pipeline.connector.intake.ValidateApiKeyRequest;
-import io.pipeline.connector.intake.ValidateApiKeyResponse;
-import io.pipeline.connector.repository.ConnectorRepository;
-import io.pipeline.connector.util.ApiKeyUtil;
+import ai.pipestream.connector.entity.Connector;
+import ai.pipestream.connector.intake.ConnectorRegistration;
+import ai.pipestream.connector.util.ConnectorMetadata;
+import ai.pipestream.connector.intake.DeleteConnectorRequest;
+import ai.pipestream.connector.intake.DeleteConnectorResponse;
+import ai.pipestream.connector.intake.GetConnectorRequest;
+import ai.pipestream.connector.intake.ListConnectorsRequest;
+import ai.pipestream.connector.intake.ListConnectorsResponse;
+import ai.pipestream.connector.intake.MutinyConnectorAdminServiceGrpc;
+import ai.pipestream.connector.intake.RegisterConnectorRequest;
+import ai.pipestream.connector.intake.RegisterConnectorResponse;
+import ai.pipestream.connector.intake.RotateApiKeyRequest;
+import ai.pipestream.connector.intake.RotateApiKeyResponse;
+import ai.pipestream.connector.intake.SetConnectorStatusRequest;
+import ai.pipestream.connector.intake.SetConnectorStatusResponse;
+import ai.pipestream.connector.intake.UpdateConnectorRequest;
+import ai.pipestream.connector.intake.UpdateConnectorResponse;
+import ai.pipestream.connector.intake.ValidateApiKeyRequest;
+import ai.pipestream.connector.intake.ValidateApiKeyResponse;
+import ai.pipestream.connector.repository.ConnectorRepository;
+import ai.pipestream.connector.util.ApiKeyUtil;
 import io.quarkus.grpc.GrpcService;
 import io.smallrye.mutiny.Uni;
 import io.smallrye.mutiny.infrastructure.Infrastructure;
@@ -39,7 +39,7 @@ import java.util.List;
  *   <li>Registration with API key generation and initial account linkage</li>
  *   <li>Lookup and listing with pagination</li>
  *   <li>Status transitions (enable/disable) and soft deletion</li>
- *   <li>API key rotation using Argon2id hashing via {@link io.pipeline.connector.util.ApiKeyUtil}</li>
+ *   <li>API key rotation using Argon2id hashing via {@link ApiKeyUtil}</li>
  *   <li>Connector metadata updates (S3 pathing, limits, defaults)</li>
  * </ul>
  *
@@ -52,7 +52,7 @@ import java.util.List;
  *
  * Side effects:
  * <ul>
- *   <li>Reads and writes to the connectors tables through {@link io.pipeline.connector.repository.ConnectorRepository}.</li>
+ *   <li>Reads and writes to the connectors tables through {@link ConnectorRepository}.</li>
  *   <li>Remote gRPC calls to account-manager for account validation via {@link AccountValidationService}.</li>
  *   <li>Security-sensitive operations (API key generation and hashing).</li>
  * </ul>
@@ -540,8 +540,8 @@ public class ConnectorAdminServiceImpl extends MutinyConnectorAdminServiceGrpc.C
      * @param request Request containing `connector_id` and optional pagination/filter fields.
      * @return `Uni` expected to emit a `GetCrawlHistoryResponse` once implemented; currently fails with `UNIMPLEMENTED` status.
      */
-    public Uni<io.pipeline.connector.intake.GetCrawlHistoryResponse> getCrawlHistory(
-            io.pipeline.connector.intake.GetCrawlHistoryRequest request) {
+    public Uni<ai.pipestream.connector.intake.GetCrawlHistoryResponse> getCrawlHistory(
+            ai.pipestream.connector.intake.GetCrawlHistoryRequest request) {
         // TODO: Implement crawl history tracking
         return Uni.createFrom().failure(
             Status.UNIMPLEMENTED

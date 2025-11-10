@@ -1,7 +1,7 @@
-package io.pipeline.connector.service;
+package ai.pipestream.connector.service;
 
-import io.pipeline.dynamic.grpc.client.DynamicGrpcClientFactory;
-import io.pipeline.repository.account.GetAccountRequest;
+import ai.pipestream.dynamic.grpc.client.DynamicGrpcClientFactory;
+import ai.pipestream.repository.account.GetAccountRequest;
 import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;

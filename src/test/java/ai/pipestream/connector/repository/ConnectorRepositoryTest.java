@@ -1,7 +1,7 @@
-package io.pipeline.connector.repository;
+package ai.pipestream.connector.repository;
 
-import io.pipeline.connector.entity.Connector;
-import io.pipeline.connector.entity.ConnectorAccount;
+import ai.pipestream.connector.entity.Connector;
+import ai.pipestream.connector.entity.ConnectorAccount;
 import io.quarkus.test.junit.QuarkusTest;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;

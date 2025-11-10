@@ -1,17 +1,16 @@
-package io.pipeline.connector.service;
+package ai.pipestream.connector.service;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import io.grpc.StatusRuntimeException;
-import io.pipeline.connector.entity.Connector;
-import io.pipeline.connector.entity.ConnectorAccount;
-import io.pipeline.connector.intake.*;
-import io.pipeline.grpc.wiremock.AccountManagerMock;
-import io.pipeline.grpc.wiremock.AccountManagerMockTestResource;
-import io.pipeline.grpc.wiremock.InjectWireMock;
+import ai.pipestream.connector.entity.Connector;
+import ai.pipestream.connector.entity.ConnectorAccount;
+import ai.pipestream.connector.intake.*;
+import ai.pipestream.grpc.wiremock.AccountManagerMock;
+import ai.pipestream.grpc.wiremock.AccountManagerMockTestResource;
+import ai.pipestream.grpc.wiremock.InjectWireMock;
 import io.quarkus.grpc.GrpcClient;
 import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.junit.QuarkusTest;
-import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

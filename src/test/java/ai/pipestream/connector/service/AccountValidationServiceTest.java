@@ -1,9 +1,9 @@
-package io.pipeline.connector.service;
+package ai.pipestream.connector.service;
 
 import io.grpc.StatusRuntimeException;
-import io.pipeline.grpc.wiremock.AccountManagerMock;
-import io.pipeline.grpc.wiremock.AccountManagerMockTestResource;
-import io.pipeline.grpc.wiremock.InjectWireMock;
+import ai.pipestream.grpc.wiremock.AccountManagerMock;
+import ai.pipestream.grpc.wiremock.AccountManagerMockTestResource;
+import ai.pipestream.grpc.wiremock.InjectWireMock;
 import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.junit.QuarkusTest;
 import jakarta.inject.Inject;

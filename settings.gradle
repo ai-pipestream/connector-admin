@@ -1,97 +1,46 @@
 pluginManagement {
     repositories {
-        // Check if running on GitHub Actions
-        def isGitHubActions = System.getenv("GITHUB_ACTIONS") == "true" && System.getenv("GITEA_ACTIONS") == null
-
-        if (isGitHubActions) {
-            // GitHub Actions: Use public plugin portal directly
-            gradlePluginPortal()
-        } else {
-            // Local/Gitea: Use Reposilite proxy for plugins
-            maven {
-                url = uri('https://maven.rokkon.com/gradle-plugins/')
-            }
-            // Fallback to direct plugin portal
-            gradlePluginPortal()
-        }
+        gradlePluginPortal()
     }
 }
 
-rootProject.name = 'connector-admin'
+rootProject.name = 'connector-admin-service'
 
 dependencyResolutionManagement {
-    repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
-
     versionCatalogs {
         libs {
-            // Import version catalog from published BOM
-            from("io.pipeline:pipeline-bom-catalog:1.0.0-SNAPSHOT")
+            from("ai.pipestream:pipeline-bom-catalog:0.1.2-SNAPSHOT")
         }
     }
 
     repositories {
-        // Check if running on GitHub Actions (use public repos)
-        def isGitHubActions = System.getenv("GITHUB_ACTIONS") == "true" && System.getenv("GITEA_ACTIONS") == null
-
-        if (isGitHubActions) {
-            // GitHub Actions: Use GitHub Packages for io.pipeline artifacts
-            maven {
-                url = uri('https://maven.pkg.github.com/io-pipeline/bom')
-                credentials {
-                    username = System.getenv("GITHUB_ACTOR")
-                    password = System.getenv("GITHUB_TOKEN")
-                }
-                content {
-                    includeGroupByRegex "io\\.pipeline(\\..*)?"
-                }
+        // Prefer Maven Central but allow locally published releases for development
+        mavenLocal {
+            mavenContent {
+                releasesOnly()
             }
-            // Maven Central for everything else
-            mavenCentral()
-        } else {
-            // Local/Gitea: Use internal Reposilite repos
-
-            // Maven Local for published Pipeline artifacts during development
-            mavenLocal() {
-                content {
-                    includeGroupByRegex "io\\.pipeline(\\..*)?"
-                }
+            content {
+                includeGroupByRegex "ai\\.pipestream(\\..*)?"
             }
+        }
 
-            // Reposilite snapshots for internal artifacts and BOM catalog
+        mavenCentral()
+
+        maven {
+            url = uri('https://central.sonatype.com/repository/maven-snapshots/')
+            mavenContent {
+                snapshotsOnly()
+            }
+        }
+
+        if (System.getenv('CI_ENV') != 'internal') {
             maven {
-                url = uri('https://maven.rokkon.com/snapshots')
+                url = uri('https://repository.apache.org/content/repositories/snapshots/')
                 allowInsecureProtocol = false
                 content {
-                    includeGroupByRegex "io\\.pipeline(\\..*)?"
+                    includeGroupByRegex "org\\.apache\\.tika(\\..*)?"
                 }
             }
-
-            // Reposilite releases for internal artifacts
-            maven {
-                url = uri('https://maven.rokkon.com/releases')
-                allowInsecureProtocol = false
-                content {
-                    includeGroupByRegex "io\\.pipeline(\\..*)?"
-                }
-            }
-
-            // Gitea Maven registry (backup for internal artifacts)
-            maven {
-                url = uri('https://git.rokkon.com/api/packages/io-pipeline/maven')
-                allowInsecureProtocol = false
-                content {
-                    includeGroupByRegex "io\\.pipeline(\\..*)?"
-                }
-            }
-
-            // Reposilite as Maven Central proxy (primary)
-            maven {
-                url = uri('https://maven.rokkon.com/maven-central/')
-                allowInsecureProtocol = false
-            }
-
-            // Fallback to Maven Central
-            mavenCentral()
         }
     }
 }
