@@ -14,7 +14,7 @@ dependencies {
     // Dev services infrastructure (shared Docker Compose stack)
     implementation libs.pipestream.compose.devservices
     
-    // Use published BOM from Maven Local
+    // Use published BOM to align all versions
     implementation platform("ai.pipestream:pipeline-bom:${pipelineBomVersion}")
 
     // Core Quarkus dependencies
@@ -26,7 +26,7 @@ dependencies {
     implementation 'io.quarkus:quarkus-flyway'
     implementation 'org.flywaydb:flyway-mysql'
     implementation 'io.quarkus:quarkus-smallrye-openapi'
-    implementation 'io.quarkus:quarkus-grpc'
+    implementation libs.quarkus.grpc
     implementation 'io.quarkus:quarkus-smallrye-stork'
 
     // Kafka dependencies
@@ -89,10 +89,10 @@ publishing {
                 artifact.classifier = 'runner'
                 artifact.builtBy tasks.named('quarkusBuild')
             }
-            pom { pom ->
+            pom {
                 name.set('Connector Admin Service')
-                description.set('Administrative service for managing connectors in the Pipeline platform')
-                url.set('https://github.com/io-pipeline/connector-admin')
+                description.set('Administrative service for managing connectors in the Pipestream platform')
+                url.set('https://github.com/ai-pipestream/connector-admin')
 
                 licenses {
                     license {
@@ -104,15 +104,14 @@ publishing {
                 developers {
                     developer {
                         id.set('krickert')
-                        email.set('krickert@rokkon.com')
-                        name.set('Pipeline Engine Team')
+                        name.set('Pipestream Platform Team')
                     }
                 }
 
                 scm {
-                    connection.set('scm:git:git://github.com/io-pipeline/connector-admin.git')
-                    developerConnection.set('scm:git:ssh://github.com/io-pipeline/connector-admin.git')
-                    url.set('https://github.com/io-pipeline/connector-admin')
+                    connection.set('scm:git:git://github.com/ai-pipestream/connector-admin.git')
+                    developerConnection.set('scm:git:ssh://github.com/ai-pipestream/connector-admin.git')
+                    url.set('https://github.com/ai-pipestream/connector-admin')
                 }
             }
         }
@@ -122,36 +121,18 @@ publishing {
         // Publish to Maven Local for development
         mavenLocal()
 
-        // Publish to Reposilite (primary artifact repository)
-        maven {
-            name = "Reposilite"
-            url = uri(version.toString().endsWith('-SNAPSHOT')
-                ? "https://maven.rokkon.com/snapshots"
-                : "https://maven.rokkon.com/releases")
-            credentials {
-                username = project.findProperty("reposilite.user") ?: System.getenv("REPOS_USER") ?: "admin"
-                password = project.findProperty("reposilite.token") ?: System.getenv("REPOS_PAT")
-            }
-        }
-
-        // Publish to Gitea Maven registry (backup)
-        maven {
-            name = "Gitea"
-            url = uri("https://git.rokkon.com/api/packages/io-pipeline/maven")
-            credentials {
-                username = project.findProperty("gitea.user") ?: System.getenv("GIT_USER") ?: "krickert"
-                password = project.findProperty("gitea.token") ?: System.getenv("GIT_PAT")
-            }
-        }
-
-        // Publish to GitHub Packages (only if credentials available)
-        if (project.hasProperty("gpr.user") || System.getenv("GITHUB_ACTOR") != null) {
+        // Publish to GitHub Packages when credentials are available (CI)
+        def githubToken = providers.environmentVariable("GITHUB_TOKEN")
+        if (githubToken.isPresent()) {
             maven {
                 name = "GitHubPackages"
-                url = uri("https://maven.pkg.github.com/io-pipeline/connector-admin")
+                url = uri("https://maven.pkg.github.com/ai-pipestream/connector-admin")
                 credentials {
-                    username = project.findProperty("gpr.user") ?: System.getenv("GITHUB_ACTOR")
-                    password = project.findProperty("gpr.key") ?: System.getenv("GITHUB_TOKEN")
+                    username = providers.environmentVariable("GITHUB_ACTOR").getOrElse("github-actions")
+                    password = githubToken.get()
+                }
+                mavenContent {
+                    releasesOnly()
                 }
             }
         }

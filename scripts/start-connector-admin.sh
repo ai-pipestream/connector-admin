@@ -8,7 +8,7 @@
 set -e
 
 # Configuration - Update this path to your dev-assets checkout location
-DEV_ASSETS_LOCATION="${DEV_ASSETS_LOCATION:-/home/krickert/IdeaProjects/gitea/dev-assets}"
+DEV_ASSETS_LOCATION="${DEV_ASSETS_LOCATION:-$HOME/IdeaProjects/ai-pipestream/dev-assets}"
 
 # Source shared utilities from dev-assets
 source "$DEV_ASSETS_LOCATION/scripts/shared-utils.sh"
