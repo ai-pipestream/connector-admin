@@ -6,12 +6,57 @@ import java.io.Serializable;
 import java.util.Objects;
 
 /**
- * Junction entity for many-to-many relationship between Connectors and Accounts.
+ * Junction entity establishing a many-to-many relationship between Connectors and Accounts.
  * <p>
- * A connector can be linked to multiple accounts, and an account can have
- * multiple connectors. This enables cross-account connector sharing.
- * <p>
- * Database Table: {@code connector_accounts}
+ * This entity enables flexible connector-account associations where a single connector
+ * can serve multiple accounts (shared connector model), and an account can utilize
+ * multiple connectors for different data sources.
+ *
+ * <h2>Architecture Pattern</h2>
+ * Implements the classic junction table pattern for many-to-many relationships:
+ * <pre>
+ * Account 1 --&gt; ConnectorAccount 1 --&gt; Connector A
+ * Account 1 --&gt; ConnectorAccount 2 --&gt; Connector B
+ * Account 2 --&gt; ConnectorAccount 3 --&gt; Connector A  (shared)
+ * </pre>
+ *
+ * <h2>Database Schema</h2>
+ * <pre>
+ * Table: connector_accounts
+ * Composite Primary Key: (connector_id, account_id)
+ * Foreign Keys:
+ *   - connector_id -&gt; connectors.connector_id (ON DELETE CASCADE)
+ *   - account_id: No FK constraint (accounts managed by separate service)
+ * </pre>
+ *
+ * <h2>Service Decoupling</h2>
+ * Notably, this table does NOT define a foreign key to the accounts table because
+ * accounts are managed by a separate microservice (account-manager). Account existence
+ * is validated via gRPC before creating links, maintaining service independence.
+ *
+ * <h2>Query Patterns</h2>
+ * <ul>
+ *   <li><b>Find connectors for account</b>: {@code SELECT ca WHERE ca.accountId = ?}</li>
+ *   <li><b>Find accounts for connector</b>: {@code SELECT ca WHERE ca.connectorId = ?}</li>
+ *   <li><b>Check if linked</b>: {@code COUNT WHERE ca.connectorId = ? AND ca.accountId = ?}</li>
+ * </ul>
+ *
+ * <h2>Example Usage</h2>
+ * <pre>
+ * // Link connector to account
+ * ConnectorAccount link = new ConnectorAccount(connectorId, accountId);
+ * link.persist();
+ *
+ * // Find all connectors for an account with eager-loaded connector details
+ * List&lt;ConnectorAccount&gt; links = ConnectorAccount.find(
+ *     "accountId = ?1", accountId
+ * ).list();
+ * </pre>
+ *
+ * @see ai.pipestream.connector.entity.Connector
+ * @see ai.pipestream.connector.repository.ConnectorRepository#linkConnectorToAccount(String, String)
+ * @see ai.pipestream.connector.repository.ConnectorRepository#unlinkConnectorFromAccount(String, String)
+ * @since 1.0.0
  */
 @Entity
 @Table(name = "connector_accounts")

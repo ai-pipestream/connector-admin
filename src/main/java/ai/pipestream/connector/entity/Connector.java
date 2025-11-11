@@ -5,16 +5,59 @@ import jakarta.persistence.*;
 import java.time.OffsetDateTime;
 
 /**
- * Connector entity representing external data sources.
+ * Connector entity representing external data sources that ingest documents into the Pipestream platform.
  * <p>
- * Connectors authenticate via API keys to ingest documents into the platform.
- * Each connector can be linked to multiple accounts via the connector_accounts
- * junction table.
- * <p>
- * Database Table: {@code connectors}
- * <p>
- * API keys are stored hashed for security. The plaintext key is only returned
- * once during registration or rotation.
+ * A connector is a configured integration with an external system (e.g., filesystem, Confluence, SharePoint)
+ * that crawls and ingests documents. Each connector authenticates using an API key and can be associated
+ * with multiple accounts through a many-to-many relationship.
+ *
+ * <h2>Key Features</h2>
+ * <ul>
+ *   <li><b>API Key Authentication</b>: Secure authentication using Argon2id-hashed API keys</li>
+ *   <li><b>Multi-Account Support</b>: Single connector can serve multiple accounts via junction table</li>
+ *   <li><b>Soft Deletion</b>: Maintains audit trail through soft delete with reason tracking</li>
+ *   <li><b>Status Management</b>: Active/inactive states with status reason for debugging</li>
+ *   <li><b>Flexible Metadata</b>: JSON-based metadata for S3 configuration, limits, and defaults</li>
+ * </ul>
+ *
+ * <h2>Database Schema</h2>
+ * <pre>
+ * Table: connectors
+ * Primary Key: connector_id (UUID)
+ * Unique Keys: connector_name
+ * Indexes: active, connector_name, connector_type
+ * </pre>
+ *
+ * <h2>Security Model</h2>
+ * API keys are never stored in plaintext. The {@link #apiKeyHash} field contains an Argon2id hash
+ * (64MB memory, 3 iterations, 4 threads) that is verified using constant-time comparison to prevent
+ * timing attacks. The plaintext API key is only returned once during registration or rotation.
+ *
+ * <h2>Lifecycle States</h2>
+ * <ul>
+ *   <li><b>Active</b>: Connector can authenticate and ingest documents</li>
+ *   <li><b>Inactive</b>: Authentication disabled, often due to account inactivation or manual disable</li>
+ *   <li><b>Soft-Deleted</b>: Marked as deleted with reason and timestamp; can be recovered</li>
+ * </ul>
+ *
+ * <h2>Example Usage</h2>
+ * <pre>
+ * // Creating a new connector (typically done via ConnectorRepository)
+ * Connector connector = new Connector(
+ *     UUID.randomUUID().toString(),
+ *     "my-confluence-connector",
+ *     "confluence",
+ *     "Company wiki connector",
+ *     apiKeyUtil.hashApiKey(apiKey)
+ * );
+ * connector.metadata = metadataJson;
+ * connector.persist();
+ * </pre>
+ *
+ * @see ai.pipestream.connector.entity.ConnectorAccount
+ * @see ai.pipestream.connector.repository.ConnectorRepository
+ * @see ai.pipestream.connector.util.ApiKeyUtil
+ * @since 1.0.0
  */
 @Entity
 @Table(name = "connectors")

@@ -7,9 +7,73 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Connector metadata structure stored as JSON in database.
+ * Connector metadata structure representing flexible configuration stored as JSON in the database.
  * <p>
- * Contains S3 configuration, limits, and default metadata for documents.
+ * This class encapsulates connector-specific configuration including document storage paths,
+ * operational limits, and default metadata that gets applied to all ingested documents.
+ * The metadata is serialized to JSON and stored in the {@link ai.pipestream.connector.entity.Connector#metadata}
+ * field, allowing for schema flexibility without database migrations.
+ *
+ * <h2>Configuration Categories</h2>
+ * <ul>
+ *   <li><b>Storage Configuration</b>: S3 bucket and path for document storage</li>
+ *   <li><b>Operational Limits</b>: File size and rate limiting constraints</li>
+ *   <li><b>Document Defaults</b>: Key-value metadata applied to all documents</li>
+ * </ul>
+ *
+ * <h2>JSON Schema Example</h2>
+ * <pre>
+ * {
+ *   "s3Bucket": "pipestream-docs",
+ *   "s3BasePath": "connectors/confluence/acme-corp",
+ *   "maxFileSize": 52428800,
+ *   "rateLimitPerMinute": 60,
+ *   "defaultMetadata": {
+ *     "source": "confluence",
+ *     "organization": "acme-corp",
+ *     "tier": "enterprise"
+ *   }
+ * }
+ * </pre>
+ *
+ * <h2>Usage Patterns</h2>
+ * <pre>
+ * // Creating metadata
+ * ConnectorMetadata metadata = new ConnectorMetadata();
+ * metadata.setS3Bucket("company-docs");
+ * metadata.setS3BasePath("connectors/sharepoint");
+ * metadata.setMaxFileSize(100 * 1024 * 1024); // 100MB
+ * metadata.setRateLimitPerMinute(120);
+ * metadata.setDefaultMetadata(Map.of("source", "sharepoint"));
+ * String json = metadata.toJson();
+ *
+ * // Parsing existing metadata
+ * ConnectorMetadata existing = ConnectorMetadata.fromJson(connector.metadata);
+ * existing.setMaxFileSize(200 * 1024 * 1024); // Update limit
+ * connector.metadata = existing.toJson();
+ *
+ * // Merging metadata (in service layer)
+ * ConnectorMetadata current = ConnectorMetadata.fromJson(connector.metadata);
+ * current.getDefaultMetadata().putAll(newMetadata);
+ * connector.metadata = current.toJson();
+ * </pre>
+ *
+ * <h2>Field Descriptions</h2>
+ * <ul>
+ *   <li><b>s3Bucket</b>: Target S3 bucket name for document storage</li>
+ *   <li><b>s3BasePath</b>: Base path/prefix within the bucket (e.g., "connectors/type/name")</li>
+ *   <li><b>maxFileSize</b>: Maximum allowed file size in bytes (0 = no limit)</li>
+ *   <li><b>rateLimitPerMinute</b>: Maximum API requests per minute (0 = no limit)</li>
+ *   <li><b>defaultMetadata</b>: Key-value pairs applied to all ingested documents for tagging/filtering</li>
+ * </ul>
+ *
+ * <h2>Immutability and Thread Safety</h2>
+ * This class is mutable and not thread-safe. Instances should not be shared across threads
+ * without external synchronization. Database updates are protected by JPA transaction boundaries.
+ *
+ * @see ai.pipestream.connector.entity.Connector#metadata
+ * @see ai.pipestream.connector.service.ConnectorAdminServiceImpl#updateConnector
+ * @since 1.0.0
  */
 public class ConnectorMetadata {
 
