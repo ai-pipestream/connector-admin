@@ -4,9 +4,22 @@ plugins {
     alias(libs.plugins.maven.publish)
     id 'signing'
     id 'com.gradleup.nmcp' version '1.2.0'
+    id 'pl.allegro.tech.build.axion-release' version '1.18.16'
 }
 
-def pipelineBomVersion = findProperty('pipelineBomVersion') ?: '0.1.2-SNAPSHOT'
+// Axion-release configuration for automatic versioning
+scmVersion {
+    tag {
+        prefix = 'v'
+    }
+    checks {
+        uncommittedChanges = false
+        aheadOfRemote = false
+        snapshotDependencies = false
+    }
+}
+
+def pipelineBomVersion = findProperty('pipelineBomVersion') ?: '0.2.2'
 
 dependencies {
     implementation 'io.quarkus:quarkus-container-image-docker'
@@ -57,8 +70,8 @@ dependencies {
     integrationTestImplementation 'io.grpc:grpc-stub'
 }
 
-group = 'ai.pipestream'
-version = pipelineBomVersion
+group 'ai.pipestream'
+version "${scmVersion.version}"
 
 java {
     sourceCompatibility = JavaVersion.VERSION_21
