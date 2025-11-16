@@ -11,25 +11,15 @@ plugins {
 scmVersion {
     tag {
         prefix = 'v'
-        versionSeparator = ''
     }
-
-    versionCreator 'versionWithBranch'
-
-    snapshotCreator { version, position ->
-        "${version.toString()}-SNAPSHOT"
-    }
-
-    hooks {
-        pre 'fileUpdate', [
-            files: ['gradle.properties'],
-            pattern: { previousVersion, context -> /^version=.*$/ },
-            replacement: { currentVersion, context -> "version=${currentVersion}" }
-        ]
+    checks {
+        uncommittedChanges = false
+        aheadOfRemote = false
+        snapshotDependencies = false
     }
 }
 
-def pipelineBomVersion = findProperty('pipelineBomVersion') ?: '0.1.2-SNAPSHOT'
+def pipelineBomVersion = findProperty('pipelineBomVersion') ?: '0.2.2'
 
 dependencies {
     implementation 'io.quarkus:quarkus-container-image-docker'
@@ -80,8 +70,8 @@ dependencies {
     integrationTestImplementation 'io.grpc:grpc-stub'
 }
 
-group = 'ai.pipestream'
-version = scmVersion.version
+group 'ai.pipestream'
+version "${scmVersion.version}"
 
 java {
     sourceCompatibility = JavaVersion.VERSION_21
