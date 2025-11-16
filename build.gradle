@@ -26,12 +26,10 @@ def pipelineBomVersion = findProperty('pipelineBomVersion') ?: '0.2.2'
 
 dependencies {
     implementation 'io.quarkus:quarkus-container-image-docker'
+    implementation platform("ai.pipestream:pipeline-bom:${pipelineBomVersion}")
 
     // Dev services infrastructure (shared Docker Compose stack)
     implementation libs.pipestream.compose.devservices
-    
-    // Use published BOM to align all versions
-    implementation platform("ai.pipestream:pipeline-bom:${pipelineBomVersion}")
 
     // Core Quarkus dependencies
     implementation 'io.quarkus:quarkus-hibernate-orm-panache'
@@ -77,8 +75,9 @@ group 'ai.pipestream'
 version "${scmVersion.version}"
 
 java {
-    sourceCompatibility = JavaVersion.VERSION_21
-    targetCompatibility = JavaVersion.VERSION_21
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
     withJavadocJar()
     withSourcesJar()
 }
