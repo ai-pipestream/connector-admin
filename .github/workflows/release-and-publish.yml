@@ -103,47 +103,45 @@ jobs:
           if [ "${{ github.event.inputs.version_bump }}" == "manual" ]; then
             VERSION="${{ github.event.inputs.manual_version }}"
           else
-            case "${{ github.event.inputs.version_bump }}" in
-              major)
-                VERSION=$(./gradlew release -Prelease.versionIncrementer=incrementMajor -Prelease.dryRun | grep "Release version" | awk '{print $NF}')
-                ;;
-              minor)
-                VERSION=$(./gradlew release -Prelease.versionIncrementer=incrementMinor -Prelease.dryRun | grep "Release version" | awk '{print $NF}')
-                ;;
-              patch)
-                VERSION=$(./gradlew release -Prelease.versionIncrementer=incrementPatch -Prelease.dryRun | grep "Release version" | awk '{print $NF}')
-                ;;
-            esac
-          fi
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "tag=v${VERSION}" >> $GITHUB_OUTPUT
-          echo "Releasing version: ${VERSION}"
+            # Get current version from axion-release
+            CURRENT=$(./gradlew currentVersion -q --no-daemon | tail -1)
+            echo "Raw version output: $CURRENT"
 
-      - name: Create release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          if [ "${{ github.event.inputs.version_bump }}" == "manual" ]; then
-            ./gradlew createRelease -Prelease.version=${{ steps.release_version.outputs.version }} -Prelease.disableChecks
-          else
+            # Strip "Project version: " prefix if present
+            CURRENT=${CURRENT#Project version: }
+            echo "Parsed version: $CURRENT"
+
+            # Remove -SNAPSHOT suffix if present
+            CURRENT=${CURRENT%-SNAPSHOT}
+            
+            # Remove branch suffix (e.g., -copilot-fix-cicd-release-workflow)
+            CURRENT=$(echo "$CURRENT" | sed 's/-[a-zA-Z0-9-]*$//')
+            echo "Clean version: $CURRENT"
+
+            # Parse version components
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+
             case "${{ github.event.inputs.version_bump }}" in
               major)
-                ./gradlew createRelease -Prelease.versionIncrementer=incrementMajor
+                VERSION="$((MAJOR + 1)).0.0"
                 ;;
               minor)
-                ./gradlew createRelease -Prelease.versionIncrementer=incrementMinor
+                VERSION="${MAJOR}.$((MINOR + 1)).0"
                 ;;
               patch)
-                ./gradlew createRelease -Prelease.versionIncrementer=incrementPatch
+                VERSION="${MAJOR}.${MINOR}.$((PATCH + 1))"
                 ;;
             esac
           fi
 
-      - name: Push release tag
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=v$VERSION" >> $GITHUB_OUTPUT
+          echo "Release version: $VERSION"
+
+      - name: Create release tag
         run: |
-          ./gradlew pushRelease
+          git tag -a "${{ steps.release_version.outputs.tag }}" -m "Release ${{ steps.release_version.outputs.version }}"
+          git push origin "${{ steps.release_version.outputs.tag }}"
 
       - name: Configure GPG (if available)
         env:
