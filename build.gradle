@@ -81,7 +81,7 @@ dependencies {
 }
 
 group = 'ai.pipestream'
-version = "${scmVersion.version}"
+version = scmVersion.version.toString()
 
 java {
     sourceCompatibility = JavaVersion.VERSION_21
