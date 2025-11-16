@@ -14,6 +14,8 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for axion-release versioning
 
       - uses: actions/setup-java@v4
         with:
@@ -30,6 +32,9 @@ jobs:
             ${{ runner.os }}-gradle-
 
       - run: chmod +x gradlew
+
+      - name: Display current version
+        run: ./gradlew currentVersion
 
       - name: Build and test
         env:
@@ -45,18 +50,23 @@ jobs:
           path: build/test-results/
 
       - name: Publish to GitHub Packages
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' && github.event_name != 'workflow_dispatch'
         env:
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./gradlew publishAllPublicationsToGitHubPackagesRepository --no-daemon
 
-  publish-central:
+  publish-snapshots:
     runs-on: ubuntu-latest
     needs: build
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && github.event_name != 'workflow_dispatch'
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-java@v4
         with:
@@ -73,6 +83,9 @@ jobs:
             ${{ runner.os }}-gradle-
 
       - run: chmod +x gradlew
+
+      - name: Display current version
+        run: ./gradlew currentVersion
 
       - name: Configure GPG (if available)
         if: env.GPG_SIGNING_KEY != ''
@@ -87,19 +100,23 @@ jobs:
           MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
           GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
           GPG_SIGNING_PASSPHRASE: ${{ secrets.GPG_SIGNING_PASSPHRASE }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./gradlew publishAllPublicationsToCentralPortalSnapshots --no-daemon
 
-  docker:
+  docker-snapshot:
     runs-on: ubuntu-latest
     needs:
       - build
-      - publish-central
-    if: github.ref == 'refs/heads/main'
+      - publish-snapshots
+    if: github.ref == 'refs/heads/main' && github.event_name != 'workflow_dispatch'
     permissions:
       contents: read
       packages: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-java@v4
         with:
@@ -117,6 +134,9 @@ jobs:
 
       - run: chmod +x gradlew
 
+      - name: Display current version
+        run: ./gradlew currentVersion
+
       - uses: docker/setup-buildx-action@v3
 
       - uses: docker/login-action@v3
@@ -125,7 +145,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push Docker image
+      - name: Build and push snapshot Docker image
         env:
           QUARKUS_CONTAINER_IMAGE_REGISTRY: ghcr.io
           QUARKUS_CONTAINER_IMAGE_GROUP: ai-pipestream
@@ -134,10 +154,12 @@ jobs:
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
           ./gradlew build -x test \
             -Dquarkus.container-image.build=true \
             -Dquarkus.container-image.push=true \
             -Dquarkus.container-image.registry=ghcr.io \
             -Dquarkus.container-image.group=ai-pipestream \
-            -Dquarkus.container-image.additional-tags=${{ github.sha }} \
+            -Dquarkus.container-image.tag=main-${SHORT_SHA} \
+            -Dquarkus.container-image.additional-tags=${SHORT_SHA} \
             --no-daemon
