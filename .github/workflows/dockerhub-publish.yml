@@ -1,15 +1,25 @@
-name: Publish to Docker Hub
+name: Docker Hub Publish
 
 on:
   repository_dispatch:
-    types: [docker-publish]
+    types: [dockerhub-publish]
 
 jobs:
-  mirror-to-dockerhub:
+  push-to-dockerhub:
     runs-on: ubuntu-latest
-    if: github.event.client_payload.version != ''
+    permissions:
+      contents: read
+      packages: read
     steps:
-      - name: Login to GHCR
+      - name: Validate payload
+        run: |
+          echo "Payload: ${{ toJson(github.event.client_payload) }}"
+          if [ -z "${{ github.event.client_payload.base_image }}" ] || [ -z "${{ github.event.client_payload.dockerhub_repo }}" ] || [ -z "${{ github.event.client_payload.tags }}" ]; then
+            echo "Missing required client_payload fields: base_image, dockerhub_repo, tags" >&2
+            exit 1
+          fi
+
+      - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -22,21 +32,19 @@ jobs:
           username: ${{ secrets.DOCKER_USER }}
           password: ${{ secrets.DOCKER_TOKEN }}
 
-      - name: Pull from GHCR and push to Docker Hub
+      - name: Pull from GHCR, retag, and push to Docker Hub
         env:
-          VERSION: ${{ github.event.client_payload.version }}
-          DOCKER_NAMESPACE: ${{ secrets.DOCKER_NAMESPACE }}
+          BASE_IMAGE: ${{ github.event.client_payload.base_image }}
+          DOCKERHUB_REPO: ${{ github.event.client_payload.dockerhub_repo }}
+          TAGS: ${{ github.event.client_payload.tags }}
         run: |
-          # Pull images from GHCR
-          docker pull ghcr.io/ai-pipestream/connector-admin:${VERSION}
-          docker pull ghcr.io/ai-pipestream/connector-admin:latest
-
-          # Tag for Docker Hub
-          docker tag ghcr.io/ai-pipestream/connector-admin:${VERSION} ${DOCKER_NAMESPACE}/connector-admin:${VERSION}
-          docker tag ghcr.io/ai-pipestream/connector-admin:latest ${DOCKER_NAMESPACE}/connector-admin:latest
-
-          # Push to Docker Hub
-          docker push ${DOCKER_NAMESPACE}/connector-admin:${VERSION}
-          docker push ${DOCKER_NAMESPACE}/connector-admin:latest
-
-          echo "Successfully mirrored connector-admin:${VERSION} to Docker Hub"
+          set -euo pipefail
+          echo "Processing tags: $TAGS"
+          for TAG in $TAGS; do
+            echo "Pulling $BASE_IMAGE:$TAG"
+            docker pull "$BASE_IMAGE:$TAG"
+            echo "Tagging to $DOCKERHUB_REPO:$TAG"
+            docker tag "$BASE_IMAGE:$TAG" "$DOCKERHUB_REPO:$TAG"
+            echo "Pushing $DOCKERHUB_REPO:$TAG"
+            docker push "$DOCKERHUB_REPO:$TAG"
+          done
