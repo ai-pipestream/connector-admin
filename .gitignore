@@ -297,3 +297,5 @@ build
 */.vscode/
 *.iml
 .claude
+bin
+.vscode

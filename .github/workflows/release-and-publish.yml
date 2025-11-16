@@ -259,8 +259,17 @@ jobs:
             -Dquarkus.container-image.additional-tags=latest \
             --no-daemon
 
-      - name: Trigger Docker Hub publishing
+      - name: Trigger Docker Hub publish
+        if: success()
+        continue-on-error: true
         uses: peter-evans/repository-dispatch@v3
         with:
-          event-type: docker-publish
-          client-payload: '{"version": "${{ needs.release.outputs.version }}", "tag": "${{ needs.release.outputs.tag }}"}'
+          token: ${{ secrets.DISPATCH_TOKEN }}
+          repository: ${{ github.repository }}
+          event-type: dockerhub-publish
+          client-payload: |
+            {
+              "base_image": "ghcr.io/ai-pipestream/connector-admin",
+              "dockerhub_repo": "pipestreamai/connector-admin",
+              "tags": "${{ needs.release.outputs.version }} latest"
+            }
