@@ -4,14 +4,125 @@
 # Port: 38107 (Connector Admin Service)
 # This script helps start the connector admin service in development mode
 # with proper environment variable detection and instance management.
+#
+# Bootstrap Design: Like Gradle Wrapper
+# - Automatically downloads helper scripts from GitHub if not available locally
+# - Works OOTB on Windows/Mac/Linux right after checkout
+# - No manual dev-assets setup required
 
 set -e
 
-# Configuration - Update this path to your dev-assets checkout location
-DEV_ASSETS_LOCATION="${DEV_ASSETS_LOCATION:-$HOME/IdeaProjects/ai-pipestream/dev-assets}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$SCRIPT_DIR/.."
 
-# Source shared utilities from dev-assets
-source "$DEV_ASSETS_LOCATION/scripts/shared-utils.sh"
+# ============================================================================
+# Bootstrap Helper Scripts from GitHub (like gradlew)
+# ============================================================================
+
+DEV_ASSETS_REPO="https://raw.githubusercontent.com/ai-pipestream/dev-assets/main"
+HELPERS_DIR="$PROJECT_ROOT/.dev-helpers"
+DEV_ASSETS_LOCATION="${DEV_ASSETS_LOCATION:-$HELPERS_DIR}"
+
+bootstrap_helpers() {
+  # Check if DEV_ASSETS_LOCATION is explicitly set by user
+  if [ -n "${DEV_ASSETS_LOCATION_OVERRIDE}" ] && [ -f "${DEV_ASSETS_LOCATION_OVERRIDE}/scripts/shared-utils.sh" ]; then
+    DEV_ASSETS_LOCATION="${DEV_ASSETS_LOCATION_OVERRIDE}"
+    echo "ℹ️  Using dev-assets from: $DEV_ASSETS_LOCATION"
+    return 0
+  fi
+
+  # Check if already bootstrapped
+  if [ -f "$HELPERS_DIR/scripts/shared-utils.sh" ]; then
+    DEV_ASSETS_LOCATION="$HELPERS_DIR"
+    echo "ℹ️  Using cached helper scripts from $HELPERS_DIR"
+    return 0
+  fi
+
+  # Bootstrap from GitHub
+  echo "🔄 Bootstrapping helper scripts from GitHub..."
+  echo "   Downloading from: $DEV_ASSETS_REPO/scripts/shared-utils.sh"
+  mkdir -p "$HELPERS_DIR/scripts"
+
+  # Download shared-utils.sh
+  if curl -fsSL "$DEV_ASSETS_REPO/scripts/shared-utils.sh" -o "$HELPERS_DIR/scripts/shared-utils.sh"; then
+    chmod +x "$HELPERS_DIR/scripts/shared-utils.sh"
+    echo "✓ Downloaded helper scripts to $HELPERS_DIR/scripts/"
+    DEV_ASSETS_LOCATION="$HELPERS_DIR"
+  else
+    echo "⚠️  Could not download from dev-assets repo (network issue or repo not found)"
+    echo "   Creating minimal fallback helpers..."
+    create_minimal_helpers
+    DEV_ASSETS_LOCATION="$HELPERS_DIR"
+  fi
+}
+
+create_minimal_helpers() {
+  # Create minimal shared-utils.sh with essential functions
+  mkdir -p "$HELPERS_DIR/scripts"
+  cat > "$HELPERS_DIR/scripts/shared-utils.sh" << 'EOF'
+#!/bin/bash
+# Minimal fallback helper functions
+
+check_dependencies() {
+  for cmd in "$@"; do
+    command -v "$cmd" >/dev/null 2>&1 || { echo "ERROR: $cmd is required but not installed"; exit 1; }
+  done
+}
+
+check_port() {
+  lsof -i ":$1" >/dev/null 2>&1
+}
+
+kill_process_on_port() {
+  local port=$1
+  local pid=$(lsof -t -i ":$port" 2>/dev/null)
+  [ -n "$pid" ] && kill "$pid" 2>/dev/null
+}
+
+validate_project_structure() {
+  for file in "$@"; do
+    [ ! -f "$file" ] && { echo "ERROR: Expected file not found: $file"; exit 1; }
+  done
+}
+
+print_status() {
+  local level=$1
+  shift
+  case "$level" in
+    header) echo "==========================================" ;;
+    info) echo "ℹ️  $*" ;;
+    warning) echo "⚠️  $*" ;;
+    error) echo "❌ $*" ;;
+  esac
+}
+
+set_registration_host() {
+  local service_name=$1
+  local env_var=$2
+  export $env_var="${!env_var:-localhost}"
+}
+EOF
+  chmod +x "$HELPERS_DIR/scripts/shared-utils.sh"
+}
+
+# Bootstrap the helpers
+bootstrap_helpers
+
+# Source shared utilities
+if [ -f "$DEV_ASSETS_LOCATION/scripts/shared-utils.sh" ]; then
+  source "$DEV_ASSETS_LOCATION/scripts/shared-utils.sh"
+else
+  echo "ERROR: Could not find shared-utils.sh at $DEV_ASSETS_LOCATION/scripts/shared-utils.sh"
+  echo "Bootstrap may have failed. Check network connection."
+  exit 1
+fi
+
+# Verify functions are available
+if ! type check_dependencies >/dev/null 2>&1; then
+  echo "ERROR: Helper functions not loaded properly"
+  echo "DEV_ASSETS_LOCATION: $DEV_ASSETS_LOCATION"
+  exit 1
+fi
 
 # Check dependencies
 check_dependencies "docker" "java"
