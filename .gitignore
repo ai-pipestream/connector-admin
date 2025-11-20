@@ -297,5 +297,6 @@ build
 */.vscode/
 *.iml
 .claude
-bin
+bin/
+.dev-helpers/
 .vscode

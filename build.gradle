@@ -22,7 +22,7 @@ scmVersion {
     }
 }
 
-def pipelineBomVersion = findProperty('pipelineBomVersion') ?: '0.2.2'
+def pipelineBomVersion = findProperty('pipelineBomVersion') ?: '0.2.6'
 
 dependencies {
     implementation 'io.quarkus:quarkus-container-image-docker'

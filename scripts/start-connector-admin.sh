@@ -4,11 +4,6 @@
 # Port: 38107 (Connector Admin Service)
 # This script helps start the connector admin service in development mode
 # with proper environment variable detection and instance management.
-#
-# Bootstrap Design: Like Gradle Wrapper
-# - Automatically downloads helper scripts from GitHub if not available locally
-# - Works OOTB on Windows/Mac/Linux right after checkout
-# - No manual dev-assets setup required
 
 set -e
 
@@ -34,75 +29,22 @@ bootstrap_helpers() {
   # Check if already bootstrapped
   if [ -f "$HELPERS_DIR/scripts/shared-utils.sh" ]; then
     DEV_ASSETS_LOCATION="$HELPERS_DIR"
-    echo "ℹ️  Using cached helper scripts from $HELPERS_DIR"
     return 0
   fi
 
   # Bootstrap from GitHub
   echo "🔄 Bootstrapping helper scripts from GitHub..."
-  echo "   Downloading from: $DEV_ASSETS_REPO/scripts/shared-utils.sh"
   mkdir -p "$HELPERS_DIR/scripts"
-
-  # Download shared-utils.sh
-  if curl -fsSL "$DEV_ASSETS_REPO/scripts/shared-utils.sh" -o "$HELPERS_DIR/scripts/shared-utils.sh"; then
-    chmod +x "$HELPERS_DIR/scripts/shared-utils.sh"
-    echo "✓ Downloaded helper scripts to $HELPERS_DIR/scripts/"
-    DEV_ASSETS_LOCATION="$HELPERS_DIR"
-  else
-    echo "⚠️  Could not download from dev-assets repo (network issue or repo not found)"
-    echo "   Creating minimal fallback helpers..."
-    create_minimal_helpers
-    DEV_ASSETS_LOCATION="$HELPERS_DIR"
+  
+  if ! curl -fsSL "$DEV_ASSETS_REPO/scripts/shared-utils.sh" -o "$HELPERS_DIR/scripts/shared-utils.sh"; then
+    echo "❌ ERROR: Could not download helper scripts from GitHub"
+    echo "   Please check your network connection and try again"
+    exit 1
   fi
-}
-
-create_minimal_helpers() {
-  # Create minimal shared-utils.sh with essential functions
-  mkdir -p "$HELPERS_DIR/scripts"
-  cat > "$HELPERS_DIR/scripts/shared-utils.sh" << 'EOF'
-#!/bin/bash
-# Minimal fallback helper functions
-
-check_dependencies() {
-  for cmd in "$@"; do
-    command -v "$cmd" >/dev/null 2>&1 || { echo "ERROR: $cmd is required but not installed"; exit 1; }
-  done
-}
-
-check_port() {
-  lsof -i ":$1" >/dev/null 2>&1
-}
-
-kill_process_on_port() {
-  local port=$1
-  local pid=$(lsof -t -i ":$port" 2>/dev/null)
-  [ -n "$pid" ] && kill "$pid" 2>/dev/null
-}
-
-validate_project_structure() {
-  for file in "$@"; do
-    [ ! -f "$file" ] && { echo "ERROR: Expected file not found: $file"; exit 1; }
-  done
-}
-
-print_status() {
-  local level=$1
-  shift
-  case "$level" in
-    header) echo "==========================================" ;;
-    info) echo "ℹ️  $*" ;;
-    warning) echo "⚠️  $*" ;;
-    error) echo "❌ $*" ;;
-  esac
-}
-
-set_registration_host() {
-  local service_name=$1
-  local env_var=$2
-  export $env_var="${!env_var:-localhost}"
-}
-EOF
+  
   chmod +x "$HELPERS_DIR/scripts/shared-utils.sh"
+  DEV_ASSETS_LOCATION="$HELPERS_DIR"
+  echo "✓ Helper scripts downloaded to $HELPERS_DIR"
 }
 
 # Bootstrap the helpers
@@ -112,25 +54,23 @@ bootstrap_helpers
 if [ -f "$DEV_ASSETS_LOCATION/scripts/shared-utils.sh" ]; then
   source "$DEV_ASSETS_LOCATION/scripts/shared-utils.sh"
 else
-  echo "ERROR: Could not find shared-utils.sh at $DEV_ASSETS_LOCATION/scripts/shared-utils.sh"
-  echo "Bootstrap may have failed. Check network connection."
+  echo "❌ ERROR: Could not find shared-utils.sh at $DEV_ASSETS_LOCATION/scripts/shared-utils.sh"
   exit 1
 fi
 
 # Verify functions are available
 if ! type check_dependencies >/dev/null 2>&1; then
-  echo "ERROR: Helper functions not loaded properly"
-  echo "DEV_ASSETS_LOCATION: $DEV_ASSETS_LOCATION"
+  echo "❌ ERROR: Helper functions not loaded properly"
   exit 1
 fi
-
-# Check dependencies
-check_dependencies "docker" "java"
 
 # Service configuration
 SERVICE_NAME="Connector Admin"
 SERVICE_PORT="38107"
 DESCRIPTION="Connector registry and administration service"
+
+# Check dependencies
+check_dependencies "docker" "java"
 
 # Validate we're in the correct directory
 validate_project_structure "build.gradle" "src/main/resources/application.properties"
@@ -141,13 +81,9 @@ export QUARKUS_HTTP_PORT="$SERVICE_PORT"
 # Set registration host using Docker bridge detection
 set_registration_host "connector-admin" "CONNECTOR_SERVICE_HOST"
 
-# Set additional environment variables if needed
-# (Connector admin uses shared infrastructure, so minimal additional config)
-
 print_status "header" "Starting $SERVICE_NAME"
 print_status "info" "Port: $SERVICE_PORT"
 print_status "info" "Description: $DESCRIPTION"
-print_status "info" "Dev Assets Location: $DEV_ASSETS_LOCATION"
 print_status "info" "Configuration:"
 echo "  Service Host: $CONNECTOR_SERVICE_HOST"
 echo "  HTTP Port: $QUARKUS_HTTP_PORT"
