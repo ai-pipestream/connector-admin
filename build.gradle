@@ -32,8 +32,8 @@ def bufExportDir = layout.buildDirectory.dir("generated/buf-protos")
 tasks.register('syncProtosIntake', Exec) {
     group = 'protobuf'
     description = 'Exports proto files from Buf Registry (intake)'
-    commandLine 'buf', 'export', 'buf.build/pipestreamai/intake',
-            '--output', bufExportDir.get().asFile.path
+    // Use bash -lc so the user's PATH (sdkman, homebrew, etc.) is honored for the buf CLI
+    commandLine 'bash', '-lc', "buf export buf.build/pipestreamai/intake --output ${bufExportDir.get().asFile.path}"
 
     outputs.dir(bufExportDir)
     doFirst {
@@ -46,8 +46,8 @@ tasks.register('syncProtosIntake', Exec) {
 tasks.register('syncProtosAdmin', Exec) {
     group = 'protobuf'
     description = 'Exports proto files from Buf Registry (admin)'
-    commandLine 'buf', 'export', 'buf.build/pipestreamai/admin',
-            '--output', bufExportDir.get().asFile.path
+    // Use bash -lc so the user's PATH is honored inside the Gradle daemon
+    commandLine 'bash', '-lc', "buf export buf.build/pipestreamai/admin --output ${bufExportDir.get().asFile.path}"
 
     outputs.dir(bufExportDir)
     doFirst {
@@ -88,6 +88,11 @@ tasks.named('quarkusGenerateCodeDev').configure {
 }
 tasks.named('quarkusGenerateCodeTests').configure {
     dependsOn 'syncProtos'
+}
+
+// Ensure Java compilation happens after gRPC code generation
+tasks.named('compileJava').configure {
+    dependsOn 'quarkusGenerateCode'
 }
 
 dependencies {
