@@ -3,7 +3,7 @@ package ai.pipestream.connector.service;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import ai.pipestream.connector.entity.Connector;
 import ai.pipestream.connector.entity.ConnectorAccount;
-import ai.pipestream.connector.intake.*;
+import ai.pipestream.connector.intake.v1.*;
 import ai.pipestream.grpc.wiremock.AccountManagerMock;
 import ai.pipestream.grpc.wiremock.AccountManagerMockTestResource;
 import ai.pipestream.grpc.wiremock.InjectWireMock;
@@ -64,11 +64,12 @@ public class ConnectorMetadataTest {
         assertTrue(response.getSuccess());
 
         // Get the connector and verify S3 config is stored
-        var connector = connectorAdminService.getConnector(
+        var getConnectorResponse = connectorAdminService.getConnector(
             GetConnectorRequest.newBuilder()
                 .setConnectorId(response.getConnectorId())
                 .build()
         ).await().indefinitely();
+        var connector = getConnectorResponse.getConnector();
 
         assertEquals("my-bucket", connector.getS3Bucket());
         assertEquals("connectors/test/", connector.getS3BasePath());
@@ -93,11 +94,12 @@ public class ConnectorMetadataTest {
         assertTrue(response.getSuccess());
 
         // Get connector - S3 fields should be empty/default
-        var connector = connectorAdminService.getConnector(
+        var getConnectorResponse = connectorAdminService.getConnector(
             GetConnectorRequest.newBuilder()
                 .setConnectorId(response.getConnectorId())
                 .build()
         ).await().indefinitely();
+        var connector = getConnectorResponse.getConnector();
 
         assertEquals("", connector.getS3Bucket());
         assertEquals("", connector.getS3BasePath());

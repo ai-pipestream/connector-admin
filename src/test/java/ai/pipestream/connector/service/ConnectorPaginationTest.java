@@ -3,7 +3,7 @@ package ai.pipestream.connector.service;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import ai.pipestream.connector.entity.Connector;
 import ai.pipestream.connector.entity.ConnectorAccount;
-import ai.pipestream.connector.intake.*;
+import ai.pipestream.connector.intake.v1.*;
 import ai.pipestream.grpc.wiremock.AccountManagerMock;
 import ai.pipestream.grpc.wiremock.AccountManagerMockTestResource;
 import ai.pipestream.grpc.wiremock.InjectWireMock;
