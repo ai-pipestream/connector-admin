@@ -22,14 +22,80 @@ scmVersion {
     }
 }
 
-def pipelineBomVersion = findProperty('pipelineBomVersion') ?: '0.2.10-SNAPSHOT'
+def pipestreamBomVersion = findProperty('pipestreamBomVersion') ?: '0.7.1'
+
+// 1. Define the export path (single directory for all protos)
+def bufExportDir = layout.buildDirectory.dir("generated/buf-protos")
+
+// 2. The Sync Tasks
+// Export Connector/Admin service protos (Intake repo) used by this service's gRPC API
+tasks.register('syncProtosIntake', Exec) {
+    group = 'protobuf'
+    description = 'Exports proto files from Buf Registry (intake)'
+    commandLine 'buf', 'export', 'buf.build/pipestreamai/intake',
+            '--output', bufExportDir.get().asFile.path
+
+    outputs.dir(bufExportDir)
+    doFirst {
+        // ensure parent dir exists
+        bufExportDir.get().asFile.mkdirs()
+    }
+}
+
+// Export Repository/Kafka event protos (admin repo) needed for AccountEvent consumer
+tasks.register('syncProtosAdmin', Exec) {
+    group = 'protobuf'
+    description = 'Exports proto files from Buf Registry (admin)'
+    commandLine 'buf', 'export', 'buf.build/pipestreamai/admin',
+            '--output', bufExportDir.get().asFile.path
+
+    outputs.dir(bufExportDir)
+    doFirst {
+        bufExportDir.get().asFile.mkdirs()
+    }
+}
+
+// Aggregate task kept as the canonical dependency for codegen
+tasks.register('syncProtos') {
+    group = 'protobuf'
+    description = 'Exports all required proto files (intake + admin)'
+    dependsOn 'syncProtosIntake', 'syncProtosAdmin'
+}
+
+// 3. Configure Quarkus to find the protos
+quarkus {
+    // Point to the single directory containing all exported protos
+    quarkusBuildProperties.put("quarkus.grpc.codegen.proto-directory", bufExportDir.get().asFile.path)
+    quarkusBuildProperties.put("quarkus.grpc.codegen.enabled", "true")
+}
+
+// 4. CRITICAL: Fix Build Order & IDE Visibility
+sourceSets {
+    main {
+        java {
+            // Tell IntelliJ/Gradle where Quarkus puts the generated Java files
+            srcDir layout.buildDirectory.dir("classes/java/quarkus-generated-sources/grpc")
+        }
+    }
+}
+
+// 5. Hook into the correct Quarkus tasks
+tasks.named('quarkusGenerateCode').configure {
+    dependsOn 'syncProtos'
+}
+tasks.named('quarkusGenerateCodeDev').configure {
+    dependsOn 'syncProtos'
+}
+tasks.named('quarkusGenerateCodeTests').configure {
+    dependsOn 'syncProtos'
+}
 
 dependencies {
     implementation 'io.quarkus:quarkus-container-image-docker'
-    implementation platform("ai.pipestream:pipeline-bom:${pipelineBomVersion}")
+    implementation platform("ai.pipestream:pipestream-bom:${pipestreamBomVersion}")
 
     // Dev services infrastructure (shared Docker Compose stack)
-    implementation libs.pipestream.compose.devservices
+    implementation libs.pipestream.devservices
 
     // Core Quarkus dependencies
     implementation 'io.quarkus:quarkus-hibernate-orm-panache'
@@ -45,7 +111,8 @@ dependencies {
 
     // Kafka dependencies
     implementation 'io.quarkus:quarkus-messaging-kafka'
-    implementation libs.apicurio.registry.protobuf.serde
+    // New Apicurio Extension
+    implementation libs.quarkus.apicurio.registry.protobuf
 
     // Service Discovery dependencies for Consul
     implementation 'io.smallrye.stork:stork-service-discovery-consul'
@@ -56,12 +123,11 @@ dependencies {
     implementation libs.password4j
 
     // Pipeline libraries (published to Maven Local)
-    testImplementation libs.pipestream.grpc.wiremock
+    testImplementation "ai.pipestream:pipestream-wiremock-server:0.1.6"
     // Pipestream libraries - versions managed entirely by the BOM/catalog
-    implementation libs.pipestream.grpc.stubs
-    implementation libs.pipestream.commons
-    implementation libs.pipestream.dynamic.grpc
-    implementation libs.pipestream.dynamic.grpc.registration.clients
+    // removed legacy stubs: implementation libs.pipestream.grpc.stubs
+    implementation "ai.pipestream:quarkus-dynamic-grpc:${pipestreamBomVersion}"
+    implementation "ai.pipestream:pipestream-service-registration:${pipestreamBomVersion}"
 
     // Test dependencies
     testImplementation 'io.quarkus:quarkus-junit5'
@@ -101,10 +167,9 @@ tasks.withType(Javadoc).configureEach { task ->
     opts.encoding = 'UTF-8'
     opts.charSet = 'UTF-8'
     opts.locale = 'en'
-    // Suppress missing Javadoc warnings for now
-    opts.addStringOption('Xdoclint:-missing', '-quiet')
-    // Exclude internal packages
-    task.exclude('**/internal/**', '**/impl/**', '**/test/**')
+    
+    // Only include actual source code (excludes generated Protobuf/gRPC code)
+    include '**/ai/pipestream/connector/**'
 }
 
 // Enable resource filtering to replace @version@ in application.properties
