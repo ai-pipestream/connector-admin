@@ -4,7 +4,6 @@ import ai.pipestream.quarkus.dynamicgrpc.DynamicGrpcClientFactory;
 import ai.pipestream.repository.v1.account.MutinyAccountServiceGrpc;
 import ai.pipestream.repository.v1.account.GetAccountRequest;
 import ai.pipestream.repository.v1.account.GetAccountResponse;
-import io.grpc.Channel;
 import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
