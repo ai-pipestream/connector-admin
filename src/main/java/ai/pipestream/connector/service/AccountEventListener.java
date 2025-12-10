@@ -6,7 +6,7 @@ import ai.pipestream.connector.repository.ConnectorRepository;
 import io.smallrye.reactive.messaging.annotations.Blocking;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
-import ai.pipestream.apicurio.registry.protobuf.ProtobufIncoming;
+import org.eclipse.microprofile.reactive.messaging.Incoming;
 import org.jboss.logging.Logger;
 
 import java.util.List;
@@ -17,7 +17,7 @@ import java.util.List;
  * Listens for account inactivation/reactivation events and automatically
  * disables or re-enables connectors linked to those accounts to preserve
  * authorization invariants across services.
- *
+ * <p>
  * Reactive semantics:
  * <ul>
  * <li>Inbound channel `account-events` is consumed via MicroProfile Reactive
@@ -53,14 +53,14 @@ public class AccountEventListener {
      * status_reason="account_inactive".
      * - On reactivation: re-enables connectors that were disabled for
      * status_reason="account_inactive".
-     *
+     * <p>
      * Reactive semantics:
      * - Consumed from `account-events` channel; {@code @Blocking} ensures work runs
      * on a worker thread.
      * - Per-partition ordering is preserved by the messaging provider; do not rely
      * on global ordering.
      * - Handler is idempotent to tolerate at-least-once delivery.
-     *
+     * <p>
      * Side effects:
      * - Writes to the connectors table via {@link ConnectorRepository}.
      * - Emits INFO/WARN logs for auditing and diagnostics.
@@ -68,7 +68,7 @@ public class AccountEventListener {
      * @param event Account event payload carrying the operation and account
      *              identifier.
      */
-    @ProtobufIncoming("account-events")
+    @Incoming("account-events")
     @Blocking
     public void handleAccountEvent(AccountEvent event) {
         String accountId = event.getAccountId();
