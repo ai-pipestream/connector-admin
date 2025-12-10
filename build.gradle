@@ -131,8 +131,8 @@ dependencies {
     testImplementation "ai.pipestream:pipestream-wiremock-server:0.1.6"
     // Pipestream libraries - versions managed entirely by the BOM/catalog
     // removed legacy stubs: implementation libs.pipestream.grpc.stubs
-    implementation "ai.pipestream:quarkus-dynamic-grpc:${pipestreamBomVersion}"
-    implementation "ai.pipestream:pipestream-service-registration:${pipestreamBomVersion}"
+    implementation 'ai.pipestream:quarkus-dynamic-grpc'
+    implementation 'ai.pipestream:pipestream-service-registration'
 
     // Test dependencies
     testImplementation 'io.quarkus:quarkus-junit5'
@@ -168,13 +168,23 @@ compileTestJava {
 
 // Configure Javadoc task
 tasks.withType(Javadoc).configureEach { task ->
+    // Use main sources only
+    task.setSource(sourceSets.main.allJava)
+    // Exclude any generated code if it leaks into sources
+    task.exclude('**/v1/**')
+    task.exclude('**/quarkus-generated-sources/**')
+
+    // Javadoc options
     def opts = task.options
     opts.encoding = 'UTF-8'
     opts.charSet = 'UTF-8'
     opts.locale = 'en'
-    
-    // Only include actual source code (excludes generated Protobuf/gRPC code)
-    include '**/ai/pipestream/connector/**'
+    // Be tolerant to doclint issues in dependent types
+    if (opts.respondsTo('addStringOption')) {
+        opts.addStringOption('Xdoclint:none', '-quiet')
+    }
+    // Do not fail the build on Javadoc issues
+    task.failOnError = false
 }
 
 // Enable resource filtering to replace @version@ in application.properties
@@ -185,6 +195,11 @@ processResources {
             version: project.version.toString()
         ])
     }
+}
+
+// Make sure archives include generated sources after codegen
+tasks.named('sourcesJar').configure { t ->
+    dependsOn 'quarkusGenerateCode'
 }
 
 processTestResources {

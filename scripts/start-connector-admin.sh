@@ -107,4 +107,4 @@ print_status "info" "Press Ctrl+C to stop"
 echo
 
 # Start using the app's own gradlew with the detected registration host
-./gradlew quarkusDev -Dservice.registration.host=$CONNECTOR_SERVICE_HOST
+./gradlew quarkusDev -Dpipestream.registration.advertised-host=$CONNECTOR_SERVICE_HOST
