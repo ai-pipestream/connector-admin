@@ -4,7 +4,7 @@ import com.github.tomakehurst.wiremock.WireMockServer;
 import io.grpc.StatusRuntimeException;
 import ai.pipestream.connector.entity.Connector;
 import ai.pipestream.connector.entity.ConnectorAccount;
-import ai.pipestream.connector.intake.*;
+import ai.pipestream.connector.intake.v1.*;
 import ai.pipestream.grpc.wiremock.AccountManagerMock;
 import ai.pipestream.grpc.wiremock.AccountManagerMockTestResource;
 import ai.pipestream.grpc.wiremock.InjectWireMock;
@@ -136,11 +136,12 @@ public class ConnectorAdminServiceTest {
         ).await().indefinitely();
 
         // Get connector
-        var connector = connectorAdminService.getConnector(
+        var getResp = connectorAdminService.getConnector(
             GetConnectorRequest.newBuilder()
                 .setConnectorId(registerResponse.getConnectorId())
                 .build()
         ).await().indefinitely();
+        var connector = getResp.getConnector();
 
         assertEquals(registerResponse.getConnectorId(), connector.getConnectorId());
         assertEquals(name, connector.getConnectorName());
@@ -241,13 +242,12 @@ public class ConnectorAdminServiceTest {
         assertTrue(response.getSuccess());
 
         // Verify inactive
-        var connector = connectorAdminService.getConnector(
+        var getResp = connectorAdminService.getConnector(
             GetConnectorRequest.newBuilder()
                 .setConnectorId(registerResponse.getConnectorId())
                 .build()
         ).await().indefinitely();
-
-        assertFalse(connector.getActive());
+        assertFalse(getResp.getConnector().getActive());
     }
 
     @Test
@@ -272,13 +272,12 @@ public class ConnectorAdminServiceTest {
         assertTrue(response.getSuccess());
 
         // Verify deleted (soft delete - still exists but inactive)
-        var connector = connectorAdminService.getConnector(
+        var getResp = connectorAdminService.getConnector(
             GetConnectorRequest.newBuilder()
                 .setConnectorId(registerResponse.getConnectorId())
                 .build()
         ).await().indefinitely();
-
-        assertFalse(connector.getActive());
+        assertFalse(getResp.getConnector().getActive());
     }
 
     @Test

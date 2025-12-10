@@ -3,24 +3,25 @@ package ai.pipestream.connector.service;
 import com.google.protobuf.Timestamp;
 import io.grpc.Status;
 import ai.pipestream.connector.entity.Connector;
-import ai.pipestream.connector.intake.ConnectorRegistration;
+import ai.pipestream.connector.intake.v1.ConnectorRegistration;
 import ai.pipestream.connector.util.ConnectorMetadata;
-import ai.pipestream.connector.intake.DeleteConnectorRequest;
-import ai.pipestream.connector.intake.DeleteConnectorResponse;
-import ai.pipestream.connector.intake.GetConnectorRequest;
-import ai.pipestream.connector.intake.ListConnectorsRequest;
-import ai.pipestream.connector.intake.ListConnectorsResponse;
-import ai.pipestream.connector.intake.MutinyConnectorAdminServiceGrpc;
-import ai.pipestream.connector.intake.RegisterConnectorRequest;
-import ai.pipestream.connector.intake.RegisterConnectorResponse;
-import ai.pipestream.connector.intake.RotateApiKeyRequest;
-import ai.pipestream.connector.intake.RotateApiKeyResponse;
-import ai.pipestream.connector.intake.SetConnectorStatusRequest;
-import ai.pipestream.connector.intake.SetConnectorStatusResponse;
-import ai.pipestream.connector.intake.UpdateConnectorRequest;
-import ai.pipestream.connector.intake.UpdateConnectorResponse;
-import ai.pipestream.connector.intake.ValidateApiKeyRequest;
-import ai.pipestream.connector.intake.ValidateApiKeyResponse;
+import ai.pipestream.connector.intake.v1.DeleteConnectorRequest;
+import ai.pipestream.connector.intake.v1.DeleteConnectorResponse;
+import ai.pipestream.connector.intake.v1.GetConnectorRequest;
+import ai.pipestream.connector.intake.v1.ListConnectorsRequest;
+import ai.pipestream.connector.intake.v1.ListConnectorsResponse;
+import ai.pipestream.connector.intake.v1.MutinyConnectorAdminServiceGrpc;
+import ai.pipestream.connector.intake.v1.RegisterConnectorRequest;
+import ai.pipestream.connector.intake.v1.RegisterConnectorResponse;
+import ai.pipestream.connector.intake.v1.RotateApiKeyRequest;
+import ai.pipestream.connector.intake.v1.RotateApiKeyResponse;
+import ai.pipestream.connector.intake.v1.SetConnectorStatusRequest;
+import ai.pipestream.connector.intake.v1.SetConnectorStatusResponse;
+import ai.pipestream.connector.intake.v1.UpdateConnectorRequest;
+import ai.pipestream.connector.intake.v1.UpdateConnectorResponse;
+import ai.pipestream.connector.intake.v1.ValidateApiKeyRequest;
+import ai.pipestream.connector.intake.v1.ValidateApiKeyResponse;
+import ai.pipestream.connector.intake.v1.GetConnectorResponse;
 import ai.pipestream.connector.repository.ConnectorRepository;
 import ai.pipestream.connector.util.ApiKeyUtil;
 import io.quarkus.grpc.GrpcService;
@@ -170,11 +171,11 @@ public class ConnectorAdminServiceImpl extends MutinyConnectorAdminServiceGrpc.C
      * - Read-only DB access; emits INFO logs.
      *
      * @param request Request containing `connector_id`.
-     * @return `Uni` emitting the `ConnectorRegistration` if found.
+     * @return `Uni` emitting a `GetConnectorResponse` whose `connector` holds the registration details if found.
      * @throws io.grpc.StatusRuntimeException NOT_FOUND when the connector does not exist.
      */
     @Override
-    public Uni<ConnectorRegistration> getConnector(GetConnectorRequest request) {
+    public Uni<GetConnectorResponse> getConnector(GetConnectorRequest request) {
         return Uni.createFrom().item(() -> {
             LOG.infof("Getting connector: %s", request.getConnectorId());
 
@@ -185,7 +186,9 @@ public class ConnectorAdminServiceImpl extends MutinyConnectorAdminServiceGrpc.C
                     .asRuntimeException();
             }
 
-            return toProtoConnectorRegistration(connector);
+            return GetConnectorResponse.newBuilder()
+                .setConnector(toProtoConnectorRegistration(connector))
+                .build();
         }).runSubscriptionOn(Infrastructure.getDefaultWorkerPool());
     }
 
@@ -540,8 +543,8 @@ public class ConnectorAdminServiceImpl extends MutinyConnectorAdminServiceGrpc.C
      * @param request Request containing `connector_id` and optional pagination/filter fields.
      * @return `Uni` expected to emit a `GetCrawlHistoryResponse` once implemented; currently fails with `UNIMPLEMENTED` status.
      */
-    public Uni<ai.pipestream.connector.intake.GetCrawlHistoryResponse> getCrawlHistory(
-            ai.pipestream.connector.intake.GetCrawlHistoryRequest request) {
+    public Uni<ai.pipestream.connector.intake.v1.GetCrawlHistoryResponse> getCrawlHistory(
+            ai.pipestream.connector.intake.v1.GetCrawlHistoryRequest request) {
         // TODO: Implement crawl history tracking
         return Uni.createFrom().failure(
             Status.UNIMPLEMENTED
