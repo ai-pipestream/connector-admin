@@ -52,15 +52,12 @@ public class WireMockTestResource implements QuarkusTestResourceLifecycleManager
         wireMockContainer.start();
 
         wireMockHost = wireMockContainer.getHost();
-        // Use configurable gRPC port, defaulting to 50052
-        int grpcPort = Integer.parseInt(System.getProperty("wiremock.grpc.port", "50052"));
         wireMockPort = wireMockContainer.getMappedPort(grpcPort);
 
-        // Configure Stork with staticlist service discovery
+        // Configure Stork with static service discovery
         return Map.of(
-            "quarkus.stork.account-manager.service-discovery.type", "staticlist",
-            "quarkus.stork.account-manager.service-discovery.staticlist.address-list", wireMockHost + ":" + wireMockPort,
-            "quarkus.stork.account-manager.load-balancer.type", "round-robin",
+            "stork.account-manager.service-discovery.type", "static",
+            "stork.account-manager.service-discovery.address-list", wireMockHost + ":" + wireMockPort,
             // Expose WireMock connection info for tests
             "wiremock.host", wireMockHost,
             "wiremock.port", String.valueOf(wireMockPort)
