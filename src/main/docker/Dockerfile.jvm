@@ -81,7 +81,9 @@
 FROM registry.access.redhat.com/ubi9-minimal:9.5
 
 # Install Java 21 runtime (headless for smaller size), curl for health checks, and update CVEs
-RUN microdnf install -y \
+# Remove curl-minimal first (pre-installed in ubi9-minimal) to avoid conflicts with curl
+RUN microdnf remove -y curl-minimal || true \
+    && microdnf install -y \
     java-21-openjdk-headless \
     curl \
     ca-certificates \
