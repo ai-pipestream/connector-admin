@@ -20,7 +20,7 @@ services:
       - pipeline-test-network
     environment:
       MYSQL_ROOT_PASSWORD: rootpassword
-      MYSQL_DATABASE: pipeline_account_test
+      MYSQL_DATABASE: pipeline_connector_test
       MYSQL_USER: pipeline
       MYSQL_PASSWORD: password
     command:
@@ -63,7 +63,9 @@ services:
         sleep 1;
       done;
       mysql -h mysql-test -u root -prootpassword -e \"
+      CREATE DATABASE IF NOT EXISTS pipeline_connector_test;
       CREATE DATABASE IF NOT EXISTS apicurio_registry;
+      GRANT ALL PRIVILEGES ON pipeline_connector_test.* TO 'pipeline'@'%';
       GRANT ALL PRIVILEGES ON apicurio_registry.* TO 'pipeline'@'%';
       FLUSH PRIVILEGES;
       \"

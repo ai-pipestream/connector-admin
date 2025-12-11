@@ -64,8 +64,10 @@ public class AccountValidationService {
      */
     public Uni<Void> validateAccountExistsAndActive(String accountId) {
         LOG.debugf("Validating account exists and is active: %s", accountId);
+        LOG.debugf("Stub validation mode: %s", stubValidation);
 
         if (stubValidation) {
+            LOG.infof("Using STUB MODE for account validation: %s", accountId);
             // Test-mode behavior: emulate typical scenarios used in tests
             if (accountId == null || accountId.isBlank()) {
                 return Uni.createFrom().failure(

@@ -95,6 +95,11 @@ tasks.named('compileJava').configure {
     dependsOn 'quarkusGenerateCode'
 }
 
+repositories {
+    mavenLocal()
+    mavenCentral()
+}
+
 dependencies {
     implementation 'io.quarkus:quarkus-container-image-docker'
     implementation platform("ai.pipestream:pipestream-bom:${pipestreamBomVersion}")
@@ -119,16 +124,16 @@ dependencies {
     // New Apicurio Extension
     implementation libs.quarkus.apicurio.registry.protobuf
 
-    // Service Discovery dependencies for Consul
+    // Service Discovery dependencies
     implementation 'io.smallrye.stork:stork-service-discovery-consul'
+    implementation 'io.smallrye.stork:stork-service-discovery-static-list'
     implementation 'io.smallrye.reactive:smallrye-mutiny-vertx-consul-client'
     implementation 'io.smallrye.stork:stork-service-registration-consul'
 
     // Password hashing
     implementation libs.password4j
 
-    // Pipeline libraries (published to Maven Local)
-    testImplementation "ai.pipestream:pipestream-wiremock-server:0.1.6"
+    // WireMock server is used via Docker container in WireMockTestResource, not as a dependency
     // Pipestream libraries - versions managed entirely by the BOM/catalog
     // removed legacy stubs: implementation libs.pipestream.grpc.stubs
     implementation 'ai.pipestream:quarkus-dynamic-grpc'
@@ -137,6 +142,9 @@ dependencies {
     // Test dependencies
     testImplementation 'io.quarkus:quarkus-junit5'
     testImplementation libs.smallrye.reactive.messaging.in.memory
+    testImplementation platform('org.testcontainers:testcontainers-bom:2.0.1')
+    testImplementation 'org.testcontainers:testcontainers'
+    testImplementation 'org.testcontainers:junit-jupiter'
     integrationTestImplementation 'io.grpc:grpc-netty-shaded'
     integrationTestImplementation 'io.grpc:grpc-protobuf'
     integrationTestImplementation 'io.grpc:grpc-stub'

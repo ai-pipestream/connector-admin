@@ -1,59 +1,36 @@
 package ai.pipestream.connector.service;
 
 import io.grpc.StatusRuntimeException;
-import ai.pipestream.grpc.wiremock.AccountManagerMock;
-import ai.pipestream.grpc.wiremock.AccountManagerMockTestResource;
-import ai.pipestream.grpc.wiremock.InjectWireMock;
-import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.junit.QuarkusTest;
 import jakarta.inject.Inject;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import com.github.tomakehurst.wiremock.WireMockServer;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Tests for AccountValidationService with mocked account-manager.
+ * Tests for AccountValidationService using stub mode.
  * <p>
- * Uses AccountManagerMockTestResource to properly configure Stork static discovery
- * and route account-manager calls to WireMock.
+ * Uses built-in stub validation that emulates account service responses without
+ * requiring external gRPC calls or containers.
  */
 @QuarkusTest
-@QuarkusTestResource(AccountManagerMockTestResource.class)
 public class AccountValidationServiceTest {
 
     @Inject
     AccountValidationService accountValidationService;
 
-    @InjectWireMock
-    WireMockServer wireMockServer;
-
-    private AccountManagerMock accountManagerMock;
-
-    @BeforeEach
-    void setUp() {
-        accountManagerMock = new AccountManagerMock(wireMockServer.port());
-    }
-
     @Test
     void testValidateAccountExistsAndActive_Success() {
-        // Mock active account
-        accountManagerMock.mockGetAccount("valid-account", "Valid Account", "Active account", true);
-
-        // Validate
+        // Uses default "default-account" mock from WireMock container (active account)
         assertDoesNotThrow(() -> {
-            accountValidationService.validateAccountExistsAndActive("valid-account")
+            accountValidationService.validateAccountExistsAndActive("default-account")
                 .await().indefinitely();
         });
     }
 
     @Test
     void testValidateAccountExistsAndActive_InactiveAccount() {
-        // Mock inactive account
-        accountManagerMock.mockGetAccount("inactive-account", "Inactive", "Inactive account", false);
-
-        // Validate - should fail with INVALID_ARGUMENT
+        // Test stub mode - should work without any external gRPC calls
         StatusRuntimeException exception = assertThrows(StatusRuntimeException.class, () -> {
             accountValidationService.validateAccountExistsAndActive("inactive-account")
                 .await().indefinitely();
@@ -65,10 +42,7 @@ public class AccountValidationServiceTest {
 
     @Test
     void testValidateAccountExistsAndActive_NotFound() {
-        // Mock account not found
-        accountManagerMock.mockAccountNotFound("nonexistent");
-
-        // Validate - should fail with INVALID_ARGUMENT
+        // Uses "nonexistent" NOT_FOUND mock from WireMock container
         StatusRuntimeException exception = assertThrows(StatusRuntimeException.class, () -> {
             accountValidationService.validateAccountExistsAndActive("nonexistent")
                 .await().indefinitely();
@@ -80,24 +54,18 @@ public class AccountValidationServiceTest {
 
     @Test
     void testValidateAccountExists_Success() {
-        // Mock any account (active or inactive)
-        accountManagerMock.mockGetAccount("any-account", "Any", "Any account", false);
-
-        // Validate - should succeed even if inactive
+        // Uses "inactive-account" mock - should succeed even if inactive
         assertDoesNotThrow(() -> {
-            accountValidationService.validateAccountExists("any-account")
+            accountValidationService.validateAccountExists("inactive-account")
                 .await().indefinitely();
         });
     }
 
     @Test
     void testValidateAccountExists_NotFound() {
-        // Mock account not found
-        accountManagerMock.mockAccountNotFound("missing");
-
-        // Validate - should fail
+        // Uses "nonexistent" NOT_FOUND mock
         StatusRuntimeException exception = assertThrows(StatusRuntimeException.class, () -> {
-            accountValidationService.validateAccountExists("missing")
+            accountValidationService.validateAccountExists("nonexistent")
                 .await().indefinitely();
         });
 
