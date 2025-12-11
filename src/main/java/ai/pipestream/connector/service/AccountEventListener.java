@@ -1,6 +1,6 @@
 package ai.pipestream.connector.service;
 
-import ai.pipestream.repository.account.AccountEvent;
+import ai.pipestream.repository.v1.account.AccountEvent;
 import ai.pipestream.connector.entity.ConnectorAccount;
 import ai.pipestream.connector.repository.ConnectorRepository;
 import io.smallrye.reactive.messaging.annotations.Blocking;
@@ -17,19 +17,24 @@ import java.util.List;
  * Listens for account inactivation/reactivation events and automatically
  * disables or re-enables connectors linked to those accounts to preserve
  * authorization invariants across services.
- *
+ * <p>
  * Reactive semantics:
  * <ul>
- *   <li>Inbound channel `account-events` is consumed via MicroProfile Reactive Messaging.</li>
- *   <li>{@code @Blocking} ensures processing happens on a worker thread; the broker thread is not blocked.</li>
- *   <li>Per-partition ordering is preserved by the messaging provider; applications should not assume global ordering.</li>
- *   <li>Handlers are designed to be idempotent to tolerate redelivery (at-least-once semantics).</li>
+ * <li>Inbound channel `account-events` is consumed via MicroProfile Reactive
+ * Messaging.</li>
+ * <li>{@code @Blocking} ensures processing happens on a worker thread; the
+ * broker thread is not blocked.</li>
+ * <li>Per-partition ordering is preserved by the messaging provider;
+ * applications should not assume global ordering.</li>
+ * <li>Handlers are designed to be idempotent to tolerate redelivery
+ * (at-least-once semantics).</li>
  * </ul>
  *
  * Side effects:
  * <ul>
- *   <li>Writes to the connectors table via {@link ConnectorRepository} to enable/disable connectors.</li>
- *   <li>Emits INFO/WARN logs for auditing.</li>
+ * <li>Writes to the connectors table via {@link ConnectorRepository} to
+ * enable/disable connectors.</li>
+ * <li>Emits INFO/WARN logs for auditing.</li>
  * </ul>
  */
 @ApplicationScoped
@@ -41,29 +46,35 @@ public class AccountEventListener {
     ConnectorRepository connectorRepository;
 
     /**
-     * Handles an account lifecycle event and reconciles connector status accordingly.
+     * Handles an account lifecycle event and reconciles connector status
+     * accordingly.
      * <p>
-     * - On inactivation: disables all connectors linked to the account with status_reason="account_inactive".
-     * - On reactivation: re-enables connectors that were disabled for status_reason="account_inactive".
-     *
+     * - On inactivation: disables all connectors linked to the account with
+     * status_reason="account_inactive".
+     * - On reactivation: re-enables connectors that were disabled for
+     * status_reason="account_inactive".
+     * <p>
      * Reactive semantics:
-     * - Consumed from `account-events` channel; {@code @Blocking} ensures work runs on a worker thread.
-     * - Per-partition ordering is preserved by the messaging provider; do not rely on global ordering.
+     * - Consumed from `account-events` channel; {@code @Blocking} ensures work runs
+     * on a worker thread.
+     * - Per-partition ordering is preserved by the messaging provider; do not rely
+     * on global ordering.
      * - Handler is idempotent to tolerate at-least-once delivery.
-     *
+     * <p>
      * Side effects:
      * - Writes to the connectors table via {@link ConnectorRepository}.
      * - Emits INFO/WARN logs for auditing and diagnostics.
      *
-     * @param event Account event payload carrying the operation and account identifier.
+     * @param event Account event payload carrying the operation and account
+     *              identifier.
      */
     @Incoming("account-events")
     @Blocking
     public void handleAccountEvent(AccountEvent event) {
         String accountId = event.getAccountId();
-        
+
         LOG.infof("Received account event: eventId=%s, accountId=%s, operation=%s",
-            event.getEventId(), accountId, event.getOperationCase());
+                event.getEventId(), accountId, event.getOperationCase());
 
         try {
             switch (event.getOperationCase()) {
@@ -84,7 +95,7 @@ public class AccountEventListener {
             }
         } catch (Exception e) {
             LOG.errorf(e, "Error processing account event: eventId=%s, accountId=%s",
-                event.getEventId(), accountId);
+                    event.getEventId(), accountId);
             // Don't throw - we want to continue processing other events
         }
     }
@@ -92,14 +103,15 @@ public class AccountEventListener {
     /**
      * Handle account inactivation.
      * <p>
-     * Disables all connectors for the account and sets status_reason="account_inactive".
+     * Disables all connectors for the account and sets
+     * status_reason="account_inactive".
      */
     private void handleAccountInactivated(String accountId, String reason) {
         LOG.infof("Account inactivated: accountId=%s, reason=%s", accountId, reason);
 
         // Find all connectors for this account
         List<ConnectorAccount> connectorAccounts = connectorRepository.findByAccountId(accountId);
-        
+
         if (connectorAccounts.isEmpty()) {
             LOG.debugf("No connectors found for account: %s", accountId);
             return;
@@ -108,13 +120,13 @@ public class AccountEventListener {
         int disabledCount = 0;
         for (ConnectorAccount connectorAccount : connectorAccounts) {
             String connectorId = connectorAccount.connectorId;
-            
+
             // Only disable if currently active
             if (connectorAccount.connector.active) {
                 connectorRepository.disableConnector(connectorId, "account_inactive");
                 disabledCount++;
                 LOG.infof("Disabled connector: connectorId=%s, accountId=%s, reason=account_inactive",
-                    connectorId, accountId);
+                        connectorId, accountId);
             } else {
                 LOG.debugf("Connector already inactive: connectorId=%s", connectorId);
             }
@@ -134,7 +146,7 @@ public class AccountEventListener {
 
         // Find all connectors for this account
         List<ConnectorAccount> connectorAccounts = connectorRepository.findByAccountId(accountId);
-        
+
         if (connectorAccounts.isEmpty()) {
             LOG.debugf("No connectors found for account: %s", accountId);
             return;
@@ -143,16 +155,17 @@ public class AccountEventListener {
         int reactivatedCount = 0;
         for (ConnectorAccount connectorAccount : connectorAccounts) {
             String connectorId = connectorAccount.connectorId;
-            
+
             // Only re-enable if disabled due to account inactivation
-            if (!connectorAccount.connector.active && "account_inactive".equals(connectorAccount.connector.statusReason)) {
+            if (!connectorAccount.connector.active
+                    && "account_inactive".equals(connectorAccount.connector.statusReason)) {
                 connectorRepository.enableConnector(connectorId);
                 reactivatedCount++;
                 LOG.infof("Re-enabled connector: connectorId=%s, accountId=%s",
-                    connectorId, accountId);
+                        connectorId, accountId);
             } else {
                 LOG.debugf("Connector not eligible for re-enablement: connectorId=%s, active=%s, statusReason=%s",
-                    connectorId, connectorAccount.connector.active, connectorAccount.connector.statusReason);
+                        connectorId, connectorAccount.connector.active, connectorAccount.connector.statusReason);
             }
         }
 

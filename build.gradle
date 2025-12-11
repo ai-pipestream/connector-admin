@@ -22,14 +22,90 @@ scmVersion {
     }
 }
 
-def pipelineBomVersion = findProperty('pipelineBomVersion') ?: '0.2.10-SNAPSHOT'
+def pipestreamBomVersion = findProperty('pipestreamBomVersion') ?: '0.7.1'
+
+// 1. Define the export path (single directory for all protos)
+def bufExportDir = layout.buildDirectory.dir("generated/buf-protos")
+
+// 2. The Sync Tasks
+// Export Connector/Admin service protos (Intake repo) used by this service's gRPC API
+tasks.register('syncProtosIntake', Exec) {
+    group = 'protobuf'
+    description = 'Exports proto files from Buf Registry (intake)'
+    // Use bash -lc so the user's PATH (sdkman, homebrew, etc.) is honored for the buf CLI
+    commandLine 'bash', '-lc', "buf export buf.build/pipestreamai/intake --output ${bufExportDir.get().asFile.path}"
+
+    outputs.dir(bufExportDir)
+    doFirst {
+        // ensure parent dir exists
+        bufExportDir.get().asFile.mkdirs()
+    }
+}
+
+// Export Repository/Kafka event protos (admin repo) needed for AccountEvent consumer
+tasks.register('syncProtosAdmin', Exec) {
+    group = 'protobuf'
+    description = 'Exports proto files from Buf Registry (admin)'
+    // Use bash -lc so the user's PATH is honored inside the Gradle daemon
+    commandLine 'bash', '-lc', "buf export buf.build/pipestreamai/admin --output ${bufExportDir.get().asFile.path}"
+
+    outputs.dir(bufExportDir)
+    doFirst {
+        bufExportDir.get().asFile.mkdirs()
+    }
+}
+
+// Aggregate task kept as the canonical dependency for codegen
+tasks.register('syncProtos') {
+    group = 'protobuf'
+    description = 'Exports all required proto files (intake + admin)'
+    dependsOn 'syncProtosIntake', 'syncProtosAdmin'
+}
+
+// 3. Configure Quarkus to find the protos
+quarkus {
+    // Point to the single directory containing all exported protos
+    quarkusBuildProperties.put("quarkus.grpc.codegen.proto-directory", bufExportDir.get().asFile.path)
+    quarkusBuildProperties.put("quarkus.grpc.codegen.enabled", "true")
+}
+
+// 4. CRITICAL: Fix Build Order & IDE Visibility
+sourceSets {
+    main {
+        java {
+            // Tell IntelliJ/Gradle where Quarkus puts the generated Java files
+            srcDir layout.buildDirectory.dir("classes/java/quarkus-generated-sources/grpc")
+        }
+    }
+}
+
+// 5. Hook into the correct Quarkus tasks
+tasks.named('quarkusGenerateCode').configure {
+    dependsOn 'syncProtos'
+}
+tasks.named('quarkusGenerateCodeDev').configure {
+    dependsOn 'syncProtos'
+}
+tasks.named('quarkusGenerateCodeTests').configure {
+    dependsOn 'syncProtos'
+}
+
+// Ensure Java compilation happens after gRPC code generation
+tasks.named('compileJava').configure {
+    dependsOn 'quarkusGenerateCode'
+}
+
+repositories {
+    mavenLocal()
+    mavenCentral()
+}
 
 dependencies {
     implementation 'io.quarkus:quarkus-container-image-docker'
-    implementation platform("ai.pipestream:pipeline-bom:${pipelineBomVersion}")
+    implementation platform("ai.pipestream:pipestream-bom:${pipestreamBomVersion}")
 
     // Dev services infrastructure (shared Docker Compose stack)
-    implementation libs.pipestream.compose.devservices
+    implementation libs.pipestream.devservices
 
     // Core Quarkus dependencies
     implementation 'io.quarkus:quarkus-hibernate-orm-panache'
@@ -45,27 +121,30 @@ dependencies {
 
     // Kafka dependencies
     implementation 'io.quarkus:quarkus-messaging-kafka'
-    implementation libs.apicurio.registry.protobuf.serde
+    // New Apicurio Extension
+    implementation libs.quarkus.apicurio.registry.protobuf
 
-    // Service Discovery dependencies for Consul
+    // Service Discovery dependencies
     implementation 'io.smallrye.stork:stork-service-discovery-consul'
+    implementation 'io.smallrye.stork:stork-service-discovery-static-list'
     implementation 'io.smallrye.reactive:smallrye-mutiny-vertx-consul-client'
     implementation 'io.smallrye.stork:stork-service-registration-consul'
 
     // Password hashing
     implementation libs.password4j
 
-    // Pipeline libraries (published to Maven Local)
-    testImplementation libs.pipestream.grpc.wiremock
+    // WireMock server is used via Docker container in WireMockTestResource, not as a dependency
     // Pipestream libraries - versions managed entirely by the BOM/catalog
-    implementation libs.pipestream.grpc.stubs
-    implementation libs.pipestream.commons
-    implementation libs.pipestream.dynamic.grpc
-    implementation libs.pipestream.dynamic.grpc.registration.clients
+    // removed legacy stubs: implementation libs.pipestream.grpc.stubs
+    implementation 'ai.pipestream:quarkus-dynamic-grpc'
+    implementation 'ai.pipestream:pipestream-service-registration'
 
     // Test dependencies
     testImplementation 'io.quarkus:quarkus-junit5'
     testImplementation libs.smallrye.reactive.messaging.in.memory
+    testImplementation platform('org.testcontainers:testcontainers-bom:2.0.1')
+    testImplementation 'org.testcontainers:testcontainers'
+    testImplementation 'org.testcontainers:junit-jupiter'
     integrationTestImplementation 'io.grpc:grpc-netty-shaded'
     integrationTestImplementation 'io.grpc:grpc-protobuf'
     integrationTestImplementation 'io.grpc:grpc-stub'
@@ -97,14 +176,23 @@ compileTestJava {
 
 // Configure Javadoc task
 tasks.withType(Javadoc).configureEach { task ->
+    // Use main sources only
+    task.setSource(sourceSets.main.allJava)
+    // Exclude any generated code if it leaks into sources
+    task.exclude('**/v1/**')
+    task.exclude('**/quarkus-generated-sources/**')
+
+    // Javadoc options
     def opts = task.options
     opts.encoding = 'UTF-8'
     opts.charSet = 'UTF-8'
     opts.locale = 'en'
-    // Suppress missing Javadoc warnings for now
-    opts.addStringOption('Xdoclint:-missing', '-quiet')
-    // Exclude internal packages
-    task.exclude('**/internal/**', '**/impl/**', '**/test/**')
+    // Be tolerant to doclint issues in dependent types
+    if (opts.respondsTo('addStringOption')) {
+        opts.addStringOption('Xdoclint:none', '-quiet')
+    }
+    // Do not fail the build on Javadoc issues
+    task.failOnError = false
 }
 
 // Enable resource filtering to replace @version@ in application.properties
@@ -115,6 +203,11 @@ processResources {
             version: project.version.toString()
         ])
     }
+}
+
+// Make sure archives include generated sources after codegen
+tasks.named('sourcesJar').configure { t ->
+    dependsOn 'quarkusGenerateCode'
 }
 
 processTestResources {

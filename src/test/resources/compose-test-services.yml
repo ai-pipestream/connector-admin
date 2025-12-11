@@ -20,7 +20,7 @@ services:
       - pipeline-test-network
     environment:
       MYSQL_ROOT_PASSWORD: rootpassword
-      MYSQL_DATABASE: pipeline_account_test
+      MYSQL_DATABASE: pipeline_connector_test
       MYSQL_USER: pipeline
       MYSQL_PASSWORD: password
     command:
@@ -40,7 +40,7 @@ services:
       # Wait for MySQL to be ready before considering service started
       io.quarkus.devservices.compose.wait_for.logs: ".*ready for connections.*"
       # Map MySQL JDBC URL to datasource property
-      io.quarkus.devservices.compose.config_map.jdbc_url: quarkus.datasource.jdbc.url
+      #io.quarkus.devservices.compose.config_map.jdbc_url: quarkus.datasource.jdbc.url
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       interval: 3s
@@ -63,10 +63,10 @@ services:
         sleep 1;
       done;
       mysql -h mysql-test -u root -prootpassword -e \"
-      CREATE DATABASE IF NOT EXISTS apicurio_registry;
       CREATE DATABASE IF NOT EXISTS pipeline_connector_test;
-      GRANT ALL PRIVILEGES ON apicurio_registry.* TO 'pipeline'@'%';
+      CREATE DATABASE IF NOT EXISTS apicurio_registry;
       GRANT ALL PRIVILEGES ON pipeline_connector_test.* TO 'pipeline'@'%';
+      GRANT ALL PRIVILEGES ON apicurio_registry.* TO 'pipeline'@'%';
       FLUSH PRIVILEGES;
       \"
       "
@@ -126,13 +126,12 @@ services:
       LOG_LEVEL: 'INFO'
       QUARKUS_HTTP_CORS_ORIGINS: '*'
       QUARKUS_PROFILE: 'prod'
+      QUARKUS_HTTP_ROOT_PATH: '/'
     labels:
       # Wait for Apicurio to be ready before considering service started
       io.quarkus.devservices.compose.wait_for.logs: ".*Listening on.*"
-      # Map the exposed port to apicurio registry URL property
-      # Port 8080 inside container is exposed as 8082 on host (see ports: "8082:8080")
-      # Quarkus will automatically use the host-side port (8082) for this mapping
-      io.quarkus.devservices.compose.config_map.8080: mp.messaging.connector.smallrye-kafka.apicurio.registry.url
+      # Enable auto-configuration via the Quarkus extension
+      quarkus-dev-service-apicurio-registry-protobuf: test
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 10s

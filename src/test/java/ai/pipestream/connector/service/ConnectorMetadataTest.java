@@ -1,14 +1,9 @@
 package ai.pipestream.connector.service;
 
-import com.github.tomakehurst.wiremock.WireMockServer;
 import ai.pipestream.connector.entity.Connector;
 import ai.pipestream.connector.entity.ConnectorAccount;
-import ai.pipestream.connector.intake.*;
-import ai.pipestream.grpc.wiremock.AccountManagerMock;
-import ai.pipestream.grpc.wiremock.AccountManagerMockTestResource;
-import ai.pipestream.grpc.wiremock.InjectWireMock;
+import ai.pipestream.connector.intake.v1.*;
 import io.quarkus.grpc.GrpcClient;
-import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.junit.QuarkusTest;
 import jakarta.transaction.Transactional;
 import org.junit.jupiter.api.BeforeEach;
@@ -21,24 +16,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Tests for connector metadata storage (S3 config, limits, default metadata).
  */
 @QuarkusTest
-@QuarkusTestResource(AccountManagerMockTestResource.class)
 public class ConnectorMetadataTest {
 
     @GrpcClient
     MutinyConnectorAdminServiceGrpc.MutinyConnectorAdminServiceStub connectorAdminService;
 
-    @InjectWireMock
-    WireMockServer wireMockServer;
-
-    private AccountManagerMock accountManagerMock;
-
     @BeforeEach
     @Transactional
     void setUp() {
-        // Set up account mock
-        accountManagerMock = new AccountManagerMock(wireMockServer.port());
-        accountManagerMock.mockGetAccount("test-account", "Test", "Test account", true);
-
         // Clean up
         ConnectorAccount.deleteAll();
         Connector.deleteAll();
@@ -64,11 +49,12 @@ public class ConnectorMetadataTest {
         assertTrue(response.getSuccess());
 
         // Get the connector and verify S3 config is stored
-        var connector = connectorAdminService.getConnector(
+        var getConnectorResponse = connectorAdminService.getConnector(
             GetConnectorRequest.newBuilder()
                 .setConnectorId(response.getConnectorId())
                 .build()
         ).await().indefinitely();
+        var connector = getConnectorResponse.getConnector();
 
         assertEquals("my-bucket", connector.getS3Bucket());
         assertEquals("connectors/test/", connector.getS3BasePath());
@@ -93,11 +79,12 @@ public class ConnectorMetadataTest {
         assertTrue(response.getSuccess());
 
         // Get connector - S3 fields should be empty/default
-        var connector = connectorAdminService.getConnector(
+        var getConnectorResponse = connectorAdminService.getConnector(
             GetConnectorRequest.newBuilder()
                 .setConnectorId(response.getConnectorId())
                 .build()
         ).await().indefinitely();
+        var connector = getConnectorResponse.getConnector();
 
         assertEquals("", connector.getS3Bucket());
         assertEquals("", connector.getS3BasePath());

@@ -1,12 +1,9 @@
 package ai.pipestream.connector.service;
 
-import com.github.tomakehurst.wiremock.WireMockServer;
+import ai.pipestream.connector.util.WireMockTestResource;
 import ai.pipestream.connector.entity.Connector;
 import ai.pipestream.connector.entity.ConnectorAccount;
-import ai.pipestream.connector.intake.*;
-import ai.pipestream.grpc.wiremock.AccountManagerMock;
-import ai.pipestream.grpc.wiremock.AccountManagerMockTestResource;
-import ai.pipestream.grpc.wiremock.InjectWireMock;
+import ai.pipestream.connector.intake.v1.*;
 import io.quarkus.grpc.GrpcClient;
 import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.junit.QuarkusTest;
@@ -20,24 +17,15 @@ import static org.junit.jupiter.api.Assertions.*;
  * Tests for ListConnectors pagination.
  */
 @QuarkusTest
-@QuarkusTestResource(AccountManagerMockTestResource.class)
+@QuarkusTestResource(WireMockTestResource.class)
 public class ConnectorPaginationTest {
 
     @GrpcClient
     MutinyConnectorAdminServiceGrpc.MutinyConnectorAdminServiceStub connectorAdminService;
 
-    @InjectWireMock
-    WireMockServer wireMockServer;
-
-    private AccountManagerMock accountManagerMock;
-
     @BeforeEach
     @Transactional
     void setUp() {
-        // Set up account mock
-        accountManagerMock = new AccountManagerMock(wireMockServer.port());
-        accountManagerMock.mockGetAccount("test-account", "Test Account", "Pagination test", true);
-
         // Clean up
         ConnectorAccount.deleteAll();
         Connector.deleteAll();
@@ -52,7 +40,7 @@ public class ConnectorPaginationTest {
                 RegisterConnectorRequest.newBuilder()
                     .setConnectorName(prefix + "-" + i)
                     .setConnectorType("filesystem")
-                    .setAccountId("test-account")
+                    .setAccountId("default-account")
                     .build()
             ).await().indefinitely();
         }
@@ -114,7 +102,7 @@ public class ConnectorPaginationTest {
                 RegisterConnectorRequest.newBuilder()
                     .setConnectorName(prefix + "-" + i)
                     .setConnectorType("api")
-                    .setAccountId("test-account")
+                    .setAccountId("default-account")
                     .build()
             ).await().indefinitely();
         }
