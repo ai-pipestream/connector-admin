@@ -80,11 +80,10 @@
 ###
 FROM registry.access.redhat.com/ubi9-minimal:9.5
 
-# Install Java 21 runtime (headless for smaller size), curl for health checks, and update CVEs
-# Use --allowerasing to replace curl-minimal (pre-installed) with full curl package
-RUN microdnf install -y --allowerasing \
+# Install Java 21 runtime (headless for smaller size) and update CVEs
+# curl-minimal is pre-installed in ubi9-minimal and supports -f flag for health checks
+RUN microdnf install -y \
     java-21-openjdk-headless \
-    curl \
     ca-certificates \
     && microdnf update -y \
     && microdnf clean all \
