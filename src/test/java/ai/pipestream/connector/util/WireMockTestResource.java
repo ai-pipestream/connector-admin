@@ -30,9 +30,11 @@ public class WireMockTestResource implements QuarkusTestResourceLifecycleManager
 
     @Override
     public Map<String, String> start() {
+        // Use configurable gRPC port, defaulting to 50052
+        int grpcPort = Integer.parseInt(System.getProperty("wiremock.grpc.port", "50052"));
         wireMockContainer = new GenericContainer<>(
-                DockerImageName.parse("pipestreamai/pipestream-wiremock-server:0.1.7"))
-                .withExposedPorts(8080, 50052)
+                DockerImageName.parse("docker.io/pipestreamai/pipestream-wiremock-server:0.1.8"))
+                .withExposedPorts(8080, grpcPort)
                 .waitingFor(Wait.forLogMessage(".*Direct Streaming gRPC Server started.*", 1))
                 // Configure additional test accounts via environment variables
                 .withEnv("WIREMOCK_ACCOUNT_GETACCOUNT_DEFAULT_ID", "valid-account")
@@ -50,12 +52,14 @@ public class WireMockTestResource implements QuarkusTestResourceLifecycleManager
         wireMockContainer.start();
 
         wireMockHost = wireMockContainer.getHost();
-        wireMockPort = wireMockContainer.getMappedPort(8080); // Port 8080 for gRPC via WireMock
+        // Use configurable gRPC port, defaulting to 50052
+        int grpcPort = Integer.parseInt(System.getProperty("wiremock.grpc.port", "50052"));
+        wireMockPort = wireMockContainer.getMappedPort(grpcPort);
 
-        // Configure Stork with static-list service discovery
+        // Configure Stork with staticlist service discovery
         return Map.of(
-            "quarkus.stork.account-manager.service-discovery.type", "static-list",
-            "quarkus.stork.account-manager.service-discovery.static-list.address-list", wireMockHost + ":" + wireMockPort,
+            "quarkus.stork.account-manager.service-discovery.type", "staticlist",
+            "quarkus.stork.account-manager.service-discovery.staticlist.address-list", wireMockHost + ":" + wireMockPort,
             "quarkus.stork.account-manager.load-balancer.type", "round-robin",
             // Expose WireMock connection info for tests
             "wiremock.host", wireMockHost,
