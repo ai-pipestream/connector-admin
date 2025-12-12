@@ -510,6 +510,72 @@ This migration standardizes all Pipestream services with:
 
 ## Notes
 
+## 12. Protobuf Package and Codegen Notes
+
+This section captures the authoritative protobuf package mapping and practical tips when migrating services that depend on `pipestreamai/intake` (and shared core types).
+
+### 12.1 Registry and Packages
+- Buf module: https://buf.build/pipestreamai/intake
+- Protobuf package: `ai.pipestream.connector.intake.v1`
+- Java package (generated): `ai.pipestream.connector.intake.v1` (via `option java_package`)
+- Shared/core types: `ai.pipestream.data.v1`
+
+### 12.2 Generated Services and Classes
+- gRPC services defined in Intake:
+  - `ConnectorIntakeService`
+  - `ConnectorAdminService`
+- Quarkus/Mutiny server stubs (extend these in service impls):
+  - `ai.pipestream.connector.intake.v1.MutinyConnectorIntakeServiceGrpc`
+  - `ai.pipestream.connector.intake.v1.MutinyConnectorAdminServiceGrpc`
+- Example messages you will use:
+  - `RegisterConnectorRequest` / `RegisterConnectorResponse`
+  - `GetConnectorRequest` / `GetConnectorResponse`
+  - `ListConnectorsRequest` / `ListConnectorsResponse`
+  - `SetConnectorStatusRequest` / `SetConnectorStatusResponse`
+  - `RotateApiKeyRequest` / `RotateApiKeyResponse`
+  - `ValidateApiKeyRequest` / `ValidateApiKeyResponse`
+  - Upload paths: `UploadPipeDocRequest` / `UploadPipeDocResponse`, `UploadBlobRequest` / `UploadBlobResponse`
+  - Session mgmt: `StartCrawlSession*`, `EndCrawlSession*`, `Heartbeat*`
+  - Shared types from `ai.pipestream.data.v1` such as `PipeDoc`, `Blob`
+
+### 12.3 Example Imports (server implementation)
+```java
+import ai.pipestream.connector.intake.v1.MutinyConnectorAdminServiceGrpc;
+import ai.pipestream.connector.intake.v1.RegisterConnectorRequest;
+import ai.pipestream.connector.intake.v1.RegisterConnectorResponse;
+import ai.pipestream.connector.intake.v1.GetConnectorRequest;
+import ai.pipestream.connector.intake.v1.GetConnectorResponse;
+// ... other intake v1 messages
+import ai.pipestream.data.v1.PipeDoc;
+```
+
+### 12.4 Migration Guidance
+- Replace any legacy imports that omit the `.v1` segment (e.g., `ai.pipestream.connector.intake.*`) with the new `ai.pipestream.connector.intake.v1.*` packages.
+- Ensure shared/core types import from `ai.pipestream.data.v1.*`.
+- Remove references to old prebuilt stubs; rely on Quarkus codegen from Buf-exported protos.
+
+### 12.5 Verifying Locally
+Export from Buf and validate package settings in the `.proto` files:
+```bash
+buf export buf.build/pipestreamai/intake --output build/generated/buf-protos
+grep -R "^package\|java_package" build/generated/buf-protos
+```
+You should see:
+```
+package ai.pipestream.connector.intake.v1;
+option java_package = "ai.pipestream.connector.intake.v1";
+```
+
+### 12.6 Codegen Configuration Reminders
+- `quarkus.grpc.codegen.proto-directory` must point to the Buf export directory (see section 1.3).
+- Ensure generated sources directory is added to the main source set so IDEs can resolve classes.
+
+### 12.7 TL;DR
+- Intake protos: `ai.pipestream.connector.intake.v1`
+- Shared/core types: `ai.pipestream.data.v1`
+- Server base classes: `MutinyConnectorIntakeServiceGrpc`, `MutinyConnectorAdminServiceGrpc`
+- Point codegen at Buf export dir; do not depend on legacy internal stubs.
+
 - All services should use the same BOM version (`0.7.2` or latest)
 - Protobuf generation is now handled via Buf, not local proto files
 - Apicurio configuration is automatic via extension annotations (`@ProtobufChannel`, `@ProtobufIncoming`)
@@ -519,3 +585,386 @@ This migration standardizes all Pipestream services with:
 - CVE-free Docker images using `ubi9-minimal:9.5` with `microdnf update -y`
 - WireMock containers replace direct gRPC dependencies in tests
 - Health checks use pre-installed `curl-minimal` (supports `-f` flag)
+
+---
+
+# Connector-Intake-Service Migration Guide
+
+This section provides specific guidance for migrating `connector-intake-service` to the new Pipestream architecture. Use this as a reference when performing the migration.
+
+## FAQ: Connector-Intake-Service Specific Questions
+
+### 1. Protobuf Sources
+
+**Q: Besides `buf.build/pipestreamai/intake`, do we also need `buf.build/pipestreamai/admin` or `buf.build/pipestreamai/registration` for shared/core messages used by connector-intake-service?**
+
+**A:** Yes, `connector-intake-service` requires multiple Buf registries:
+- **`buf.build/pipestreamai/intake`** - Primary registry containing connector intake service protos
+- **`buf.build/pipestreamai/admin`** - Required for `ConnectorAdminService` gRPC client calls (ValidateApiKey, GetConnector)
+- **`buf.build/pipestreamai/registration`** - **NOT required** - connector-intake-service does not use registration service protos directly
+
+**Exact registries needed:**
+```groovy
+tasks.register('syncProtosIntake', Exec) {
+    commandLine 'bash', '-lc', "buf export buf.build/pipestreamai/intake --output ${bufExportDir.get().asFile.path}"
+}
+
+tasks.register('syncProtosAdmin', Exec) {
+    commandLine 'bash', '-lc', "buf export buf.build/pipestreamai/admin --output ${bufExportDir.get().asFile.path}"
+}
+```
+
+**Q: Any private Buf modules or pinned commits/tags we must lock to?**
+
+**A:** No private Buf modules required. All registries (`buf.build/pipestreamai/intake`, `buf.build/pipestreamai/admin`) are publicly accessible. No pinned commits/tags needed - use latest from main branch of each registry.
+
+---
+
+### 2. Package and API Changes
+
+**Q: Have Java package names for generated classes changed vs the old stubs (e.g., `ai.pipestream.intake.*`)?**
+
+**A:** Yes, package names have changed. Here's the mapping:
+
+**Old Package Structure (from local stubs):**
+- `ai.pipeline.connector.intake.*` - Old package structure
+
+**New Package Structure (from Buf registries):**
+- `ai.pipestream.connector.intake.*` - New package structure (note: `pipestream` not `pipeline`)
+- `ai.pipestream.connector.intake.v1.*` - Service definitions (if versioned)
+- `ai.pipestream.repository.*` - Repository service protos (unchanged)
+- `ai.pipestream.repository.account.*` - Account service protos (unchanged)
+
+**Example Mapping:**
+```java
+// OLD (from local stubs)
+import ai.pipeline.connector.intake.ConnectorConfig;
+import ai.pipeline.connector.intake.ConnectorRegistration;
+
+// NEW (from Buf registry)
+import ai.pipestream.connector.intake.ConnectorConfig;
+import ai.pipestream.connector.intake.ConnectorRegistration;
+```
+
+**Key Changes:**
+- `ai.pipeline.*` → `ai.pipestream.*` (package rename)
+- Service implementation classes remain in `ai.pipeline.connector.intake.*` (application code, not generated)
+- Only generated proto classes change package
+
+**Files requiring updates:**
+- `ConnectorValidationService.java` - Update imports from `ai.pipestream.connector.intake.*`
+- `DocumentProcessor.java` - Update imports
+- Any test files using proto classes
+
+---
+
+### 3. Kafka Topology
+
+**Q: List of Kafka channel names used by connector-intake-service and whether they are publishers or consumers. Any channel renamed during this migration?**
+
+**A:** **Current Status:** `connector-intake-service` does **NOT** currently use Kafka channels. No `@Incoming`, `@Outgoing`, `@Channel`, `@ProtobufChannel`, or `@ProtobufIncoming` annotations found in the codebase.
+
+**Kafka Configuration:**
+- No Kafka channels configured in `application.properties`
+- No Kafka topic configuration
+- Service is primarily gRPC-based for document intake
+
+**Migration Impact:**
+- No Kafka channel migration required
+- No topic configuration needed
+- If Kafka integration is added in the future, use `@ProtobufChannel` for publishers and `@ProtobufIncoming` for consumers
+
+**Note:** The service may add Kafka integration in the future for event publishing (e.g., document processing events), but this is not part of the current migration scope.
+
+---
+
+### 4. gRPC Dependencies
+
+**Q: Which external gRPC services does connector-intake-service call? Provide the Stork service names (or target host:port) so we can configure WireMock to emulate them in tests.**
+
+**A:** `connector-intake-service` calls two external gRPC services:
+
+**1. Connector Admin Service (via Stork)**
+- **Stork Service Name:** `connector-service` (defined in `ConnectorValidationService.CONNECTOR_SERVICE_NAME`)
+- **gRPC Method:** `ValidateApiKey` (from `ConnectorAdminService`)
+- **Purpose:** Validates connector API keys and retrieves connector configuration
+- **WireMock Configuration:**
+  ```text
+  # In WireMockTestResource.java
+  "stork.connector-service.service-discovery.address-list" -> wireMockHost + ":" + wireMockPort
+  ```
+
+**2. Account Service (via Stork)**
+- **Stork Service Name:** `account-manager` (defined in `ConnectorValidationService.ACCOUNT_SERVICE_NAME`)
+- **gRPC Method:** `GetAccount` (from `AccountService`)
+- **Purpose:** Validates that the account exists and is active
+- **WireMock Configuration:**
+  ```text
+  # In WireMockTestResource.java
+  "stork.account-manager.service-discovery.address-list" -> wireMockHost + ":" + wireMockPort
+  ```
+
+**3. Repository Service (via Static Configuration)**
+- **Configuration:** `quarkus.grpc.clients.repo-service.host=localhost` and `port=38105`
+- **gRPC Methods:** `CreateNode` (from `FileSystemService`)
+- **Purpose:** Creates file system nodes for uploaded documents
+- **Note:** Currently uses static host:port, not Stork. Consider migrating to Stork service discovery in the future.
+- **WireMock Configuration:** Not needed for tests (uses static config), but can be added if migrating to Stork.
+
+**Q: Any streaming RPCs or bidirectional calls we should replicate in WireMock configuration?**
+
+**A:** No streaming RPCs or bidirectional calls. All gRPC calls are unary:
+- `ValidateApiKey` - Unary request/response
+- `GetAccount` - Unary request/response
+- `CreateNode` - Unary request/response
+
+**WireMock Setup:**
+- Use standard WireMock gRPC stubs (no streaming configuration needed)
+- Configure mocks for `ValidateApiKeyRequest` → `ValidateApiKeyResponse`
+- Configure mocks for `GetAccountRequest` → `GetAccountResponse`
+
+---
+
+### 5. Service Registration
+
+**Q: Final values for these properties: `pipestream.registration.service-name`, `description`, `type` (SERVICE vs MODULE), `capabilities`, `tags`.**
+
+**A:** Here are the final values for `connector-intake-service`:
+
+```properties
+pipestream.registration.enabled=true
+pipestream.registration.service-name=connector-intake-service
+pipestream.registration.description=Connector document ingestion, authentication, metadata enrichment, and rate limiting
+pipestream.registration.type=SERVICE
+pipestream.registration.advertised-host=${CONNECTOR_INTAKE_SERVICE_HOST:host.docker.internal}
+pipestream.registration.advertised-port=${quarkus.http.port}
+pipestream.registration.internal-host=${DOCKER_BRIDGE_IP:172.17.0.1}
+pipestream.registration.internal-port=${quarkus.http.port}
+pipestream.registration.capabilities=document-ingestion,metadata-enrichment,rate-limiting
+pipestream.registration.tags=connector,intake,core-service
+# Registration service connection
+pipestream.registration.registration-service.host=localhost
+pipestream.registration.registration-service.port=38101
+
+%test.pipestream.registration.enabled=false
+```
+
+**Key Points:**
+- **Type:** `SERVICE` (not `MODULE` - connector-intake-service is a platform service, not a processing module)
+- **Capabilities:** `document-ingestion,metadata-enrichment,rate-limiting`
+- **Tags:** `connector,intake,core-service`
+---
+
+### 6. HTTP Root Path and Healthcheck
+
+**Q: What is the canonical service root path segment used in HTTP endpoints for health checks?**
+
+**A:** The canonical root path is `/intake`.
+
+**Current Configuration:**
+```properties
+%dev.quarkus.http.root-path=/intake
+```
+
+**Docker HEALTHCHECK:**
+```dockerfile
+HEALTHCHECK --interval=30s --timeout=3s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8080/intake/q/health || exit 1
+```
+
+**Note:** The service uses port `38108` in dev mode, but the Docker container exposes port `8080` (standard Quarkus port). The health check uses the internal container port `8080` with the root path `/intake`.
+
+**Health Endpoints:**
+- Liveness: `http://localhost:8080/intake/q/health/live`
+- Readiness: `http://localhost:8080/intake/q/health/ready`
+- Startup: `http://localhost:8080/intake/q/health/started`
+- Full Health: `http://localhost:8080/intake/q/health`
+
+---
+
+### 7. Java and Build Tool Constraints
+
+**Q: We'll align with Java 21 (as per BOM/Quarkus); confirm connector-intake-service is already on JDK 21 in CI and local dev.**
+
+**A:** **Confirmed:** `connector-intake-service` is already on Java 21.
+
+**Evidence:**
+```groovy
+// build.gradle
+java {
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
+```
+
+**Q: Any Gradle wrapper version constraints we must keep?**
+
+**A:** No specific Gradle wrapper version constraints. Use the same Gradle wrapper version as `connector-admin` and `account-service` (typically Gradle 8.x). Check `gradle/wrapper/gradle-wrapper.properties` in those services for the exact version.
+
+**Recommendation:** Use Gradle 8.5 or later (compatible with Java 21 and Quarkus 3.30.3).
+
+---
+
+### 8. Test Suites
+
+**Q: Are there any existing integration tests that rely on in-project proto files or legacy stubs we should delete/replace?**
+
+**A:** **Yes, tests need updates:**
+
+**Files to Update:**
+1. **`ConnectorIntakeIntegrationTest.java`** - Likely uses old proto imports (`ai.pipeline.connector.intake.*`)
+2. **`BenchmarkIntakeTest.java`** - May use old proto classes
+3. **Any test files importing from `ai.pipeline.connector.intake.*`** - Update to `ai.pipestream.connector.intake.*`
+
+**Test Resources to Preserve:**
+- `src/test/resources/application.properties` - Keep, but update property names (`service.registration.*` → `pipestream.registration.*`)
+- `src/test/resources/compose-test-services.yml` - Keep, but verify it matches the pattern from `connector-admin`
+
+**WireMock Integration:**
+- **CREATE** `WireMockTestResource.java` similar to `connector-admin` to mock:
+  - `connector-service` (Stork service name)
+  - `account-manager` (Stork service name)
+- **REMOVE** any direct gRPC client dependencies in tests
+- **UPDATE** tests to use WireMock container instead of real gRPC services
+
+**Q: Any custom test resources we must preserve?**
+
+**A:** Preserve:
+- `src/test/resources/application.properties` - Test configuration
+- `src/test/resources/compose-test-services.yml` - Test infrastructure (if exists)
+- Any test data files or fixtures
+- **DO NOT** preserve old proto stub JARs or local proto files (replaced by Buf generation)
+
+---
+
+### 9. CI/CD and Credentials
+
+**Q: Do we have GH Packages tokens configured for this repo (so the catalog/artifacts resolve) and for publishing snapshots?**
+
+**A:** **Yes, GitHub Packages is configured:**
+
+**Evidence from `build.gradle`:**
+```groovy
+def ghRepo = System.getenv('GITHUB_REPOSITORY') ?: 'ai-pipestream/connector-intake-service'
+def ghActor = System.getenv('GITHUB_ACTOR') ?: (project.findProperty('gpr.user') ?: System.getenv('GPR_USER'))
+def ghToken = System.getenv('GITHUB_TOKEN') ?: (project.findProperty('gpr.key') ?: System.getenv('GPR_TOKEN'))
+```
+
+**Current Setup:**
+- Uses `GITHUB_TOKEN` environment variable (automatically provided by GitHub Actions)
+- Falls back to `gpr.user`/`gpr.key` Gradle properties or `GPR_USER`/`GPR_TOKEN` environment variables
+- Repository: `ai-pipestream/connector-intake-service`
+
+**Migration Requirements:**
+- **NO changes needed** - GitHub Packages authentication is already configured
+- Ensure `GITHUB_TOKEN` secret is available in GitHub Actions workflows
+- Verify `settings.gradle` includes GitHub Packages repository (already present)
+
+**Q: Docker image name and organization to use (GHCR only for snapshots; GHCR + Docker Hub for releases): confirm naming.**
+
+**A:** **Current Configuration:**
+```properties
+quarkus.container-image.registry=ghcr.io
+quarkus.container-image.group=ai-pipestream
+quarkus.container-image.name=connector-intake-service
+```
+
+**Docker Image Names:**
+- **Snapshots (GHCR only):**
+  - `ghcr.io/ai-pipestream/connector-intake-service:main-<sha>`
+  - `ghcr.io/ai-pipestream/connector-intake-service:<sha>`
+  - `ghcr.io/ai-pipestream/connector-intake-service:snapshot`
+
+- **Releases (GHCR + Docker Hub):**
+  - `ghcr.io/ai-pipestream/connector-intake-service:<version>`
+  - `ghcr.io/ai-pipestream/connector-intake-service:latest`
+  - `docker.io/pipestreamai/connector-intake-service:<version>`
+  - `docker.io/pipestreamai/connector-intake-service:latest`
+
+**Migration:**
+- Update reusable workflows to use `docker-image-name: connector-intake-service`
+- Ensure Docker Hub organization is `pipestreamai` (matches other services)
+
+---
+
+## A note about the protobufs
+
+The interfaces and definitions are copied to the pipstream-wiremock-server - if you want to look up what definitions we are downloading,  /home/krickert/IdeaProjects/pipestream-wiremock-server/build/generated/buf-protos is a good place to look.
+
+## Migration Checklist for Connector-Intake-Service
+
+### Pre-Migration Verification
+- [ ] Confirm Java 21 is used (already verified)
+- [ ] Review current `build.gradle` dependencies
+- [ ] Identify all files using old package names (`ai.pipeline.connector.intake.*`)
+- [ ] List all gRPC service calls (connector-service, account-manager, repo-service)
+
+### Build Configuration
+- [ ] Update BOM from `pipeline-bom:0.2.10-SNAPSHOT` to `pipestream-bom:0.7.2`
+- [ ] Update `settings.gradle` catalog from `pipeline-bom-catalog:0.2.7` to `pipestream-bom-catalog:0.7.2`
+- [ ] Add Buf proto sync tasks for `buf.build/pipestreamai/intake` and `buf.build/pipestreamai/admin`
+- [ ] Configure Quarkus gRPC codegen to use exported protos
+- [ ] Add `pipestream-service-registration` extension
+- [ ] Add `quarkus-apicurio-registry-protobuf` extension (if Kafka is added in future)
+- [ ] Remove old `libs.pipestream.grpc.stubs` dependency
+- [ ] Remove old `libs.pipestream.dynamic.grpc.registration.clients` (if present)
+- [ ] Add Testcontainers for WireMock integration
+
+### Application Configuration
+- [ ] Update `service.registration.*` → `pipestream.registration.*` properties
+- [ ] Add `quarkus.index-dependency` entries for extensions
+- [ ] Verify HTTP root path is `/intake`
+- [ ] Update gRPC client configurations (connector-service, account-manager)
+- [ ] Consider migrating repo-service from static config to Stork (optional)
+
+### Code Updates
+- [ ] Update all imports from `ai.pipeline.connector.intake.*` → `ai.pipestream.connector.intake.*`
+- [ ] Update `ConnectorValidationService.java` imports
+- [ ] Update `DocumentProcessor.java` imports
+- [ ] Update any other files using proto classes
+- [ ] Verify gRPC service implementations extend new generated `*ImplBase` classes
+
+### Test Updates
+- [ ] Create `WireMockTestResource.java` for mocking connector-service and account-manager
+- [ ] Update test imports to use new package names
+- [ ] Update `ConnectorIntakeIntegrationTest.java`
+- [ ] Update `BenchmarkIntakeTest.java`
+- [ ] Remove any direct gRPC client dependencies in tests
+- [ ] Update `src/test/resources/application.properties` property names
+
+### Docker Configuration
+- [ ] Update `Dockerfile.jvm` to use `ubi9-minimal:9.5`
+- [ ] Update health check to use `/intake/q/health/ready`
+- [ ] Ensure `curl-minimal` is used (pre-installed, no need to install `curl`)
+- [ ] Verify port is `8080` (standard Quarkus port in container)
+
+### CI/CD Updates
+- [ ] Update `build-and-publish.yml` to use reusable workflow with `docker-image-name: connector-intake-service`
+- [ ] Update `release-and-publish.yml` to use reusable workflow
+- [ ] Verify `GITHUB_TOKEN` secret is available
+- [ ] Verify Docker Hub credentials are configured for releases
+
+### Verification
+- [ ] Run `./gradlew clean build` - should sync protos and generate code
+- [ ] Run `./gradlew quarkusDev` - service should start successfully
+- [ ] Verify service registers with platform-registration-service
+- [ ] Check Consul UI - service should appear with correct metadata
+- [ ] Run `./gradlew test` - all tests should pass
+- [ ] Verify Docker build works
+- [ ] Test Docker container starts and registers correctly
+
+---
+
+## Assumptions Confirmed
+
+✅ **Only connector-intake-service code and its config will be changed. No changes to shared platform modules or other services.**
+- Confirmed: Migration scope is limited to `connector-intake-service` repository
+
+✅ **Topic names and RPC contracts are stable; only package locations for protos have shifted.**
+- Confirmed: No RPC contract changes, only package name changes (`ai.pipeline.*` → `ai.pipestream.*`)
+
+✅ **Buf registries are publicly accessible to CI via `bufbuild/buf-action@v1` (no private auth needed), unless you advise otherwise.**
+- Confirmed: All required registries (`buf.build/pipestreamai/intake`, `buf.build/pipestreamai/admin`) are public, no auth needed
+
+
+
