@@ -966,5 +966,300 @@ The interfaces and definitions are copied to the pipstream-wiremock-server - if 
 ✅ **Buf registries are publicly accessible to CI via `bufbuild/buf-action@v1` (no private auth needed), unless you advise otherwise.**
 - Confirmed: All required registries (`buf.build/pipestreamai/intake`, `buf.build/pipestreamai/admin`) are public, no auth needed
 
+---
+
+## 13. Dynamic-gRPC API Migration (CRITICAL CHANGES)
+
+**Status:** Major API changes in `quarkus-dynamic-grpc` from 0.7.1 to 0.7.2
+
+### 13.1 Package Relocation
+**Old Package:** `ai.pipestream.dynamic.grpc.client.*`
+**New Package:** `ai.pipestream.quarkus.dynamicgrpc.*`
+
+**Migration Required:**
+```java
+// OLD imports
+import ai.pipestream.dynamic.grpc.client.DynamicGrpcClientFactory;
+import ai.pipestream.dynamic.grpc.client.GrpcClientProvider;
+
+// NEW imports
+import ai.pipestream.quarkus.dynamicgrpc.DynamicGrpcClientFactory;
+import ai.pipestream.quarkus.dynamicgrpc.GrpcClientFactory;
+```
+
+### 13.2 API Simplification - Generic Client Method
+
+The API moved from service-specific typed methods to a single generic method using method references.
+
+**OLD API (0.7.1):**
+```java
+@Inject
+DynamicGrpcClientFactory grpcClientFactory;
+
+// Service-specific methods (NO LONGER EXIST)
+return grpcClientFactory.getConnectorAdminServiceClient(serviceName)
+    .flatMap(stub -> stub.validateApiKey(request));
+
+return grpcClientFactory.getAccountServiceClient(serviceName)
+    .flatMap(stub -> stub.getAccount(request));
+
+return grpcClientFactory.getFilesystemServiceClient(serviceName)
+    .flatMap(stub -> stub.createNode(request));
+
+// Direct host:port connection (METHOD SIGNATURE CHANGED)
+grpcClientProvider.getClient(
+    MutinyNodeUploadServiceGrpc.MutinyNodeUploadServiceStub.class,
+    host,
+    port
+);
+```
+
+**NEW API (0.7.2):**
+```java
+@Inject
+DynamicGrpcClientFactory grpcClientFactory;  // Or GrpcClientFactory
+
+// Generic method with method reference for stub creation
+return grpcClientFactory.getClient(
+    serviceName,
+    MutinyConnectorAdminServiceGrpc::newMutinyStub
+).flatMap(stub -> stub.validateApiKey(request));
+
+return grpcClientFactory.getClient(
+    serviceName,
+    MutinyAccountServiceGrpc::newMutinyStub
+).flatMap(stub -> stub.getAccount(request));
+
+return grpcClientFactory.getClient(
+    serviceName,
+    MutinyFilesystemServiceGrpc::newMutinyStub
+).flatMap(stub -> stub.createNode(request));
+
+// For static host:port, use ManagedChannelBuilder directly
+MutinyNodeUploadServiceGrpc.newMutinyStub(
+    io.grpc.ManagedChannelBuilder
+        .forTarget("static://" + host + ":" + port)
+        .usePlaintext()
+        .build()
+);
+```
+
+### 13.3 Method Signature Changes
+
+**Interface: `GrpcClientFactory`**
+```java
+// Generic client creation
+<T extends MutinyStub> Uni<T> getClient(
+    String serviceName,
+    Function<Channel, T> stubCreator
+);
+
+// Raw channel access
+Uni<Channel> getChannel(String serviceName);
+
+// Cache management
+int getActiveServiceCount();
+void evictChannel(String serviceName);
+String getCacheStats();
+```
+
+**Key Points:**
+- All service-specific methods removed (`getConnectorAdminServiceClient`, `getAccountServiceClient`, etc.)
+- Single generic `getClient` method replaces all service-specific methods
+- Uses method references (e.g., `MutinyFooServiceGrpc::newMutinyStub`) instead of class literals
+- Returns `Uni<T>` where T is the stub type, maintaining reactive semantics
+
+### 13.4 Migration Examples
+
+**Example 1: ConnectorValidationService**
+```java
+// OLD
+import ai.pipestream.dynamic.grpc.client.DynamicGrpcClientFactory;
+
+return grpcClientFactory.getConnectorAdminServiceClient(CONNECTOR_SERVICE_NAME)
+    .flatMap(stub -> stub.validateApiKey(request));
+
+// NEW
+import ai.pipestream.quarkus.dynamicgrpc.DynamicGrpcClientFactory;
+import ai.pipestream.connector.intake.v1.MutinyConnectorAdminServiceGrpc;
+
+return grpcClientFactory.getClient(
+    CONNECTOR_SERVICE_NAME,
+    MutinyConnectorAdminServiceGrpc::newMutinyStub
+).flatMap(stub -> stub.validateApiKey(request));
+```
+
+**Example 2: Account Service Client**
+```java
+// OLD
+return grpcClientFactory.getAccountServiceClient(ACCOUNT_SERVICE_NAME)
+    .flatMap(stub -> stub.getAccount(request));
+
+// NEW
+import ai.pipestream.repository.v1.account.MutinyAccountServiceGrpc;
+
+return grpcClientFactory.getClient(
+    ACCOUNT_SERVICE_NAME,
+    MutinyAccountServiceGrpc::newMutinyStub
+).flatMap(stub -> stub.getAccount(request));
+```
+
+**Example 3: Static Host:Port Connection (Repository Service)**
+```java
+// OLD
+import ai.pipestream.dynamic.grpc.client.GrpcClientProvider;
+
+@Inject
+GrpcClientProvider grpcClientProvider;
+
+repoService = grpcClientProvider.getClient(
+    MutinyNodeUploadServiceGrpc.MutinyNodeUploadServiceStub.class,
+    repoServiceHost,
+    port
+);
+
+// NEW - Use ManagedChannelBuilder directly for static connections
+repoService = MutinyNodeUploadServiceGrpc.newMutinyStub(
+    io.grpc.ManagedChannelBuilder
+        .forTarget("static://" + repoServiceHost + ":" + port)
+        .usePlaintext()
+        .build()
+);
+```
+
+### 13.5 Required Import Additions
+
+When updating to the new API, add imports for the Mutiny service stubs:
+
+```java
+// Add these imports for each service you call
+import ai.pipestream.connector.intake.v1.MutinyConnectorAdminServiceGrpc;
+import ai.pipestream.repository.v1.account.MutinyAccountServiceGrpc;
+import ai.pipestream.repository.v1.filesystem.MutinyFilesystemServiceGrpc;
+import ai.pipestream.repository.v1.filesystem.upload.MutinyNodeUploadServiceGrpc;
+```
+
+### 13.6 Proto API Breaking Changes
+
+**Repository Upload API:**
+The `uploadPipeDoc` method in `MutinyNodeUploadServiceGrpc` changed from accepting a `PipeDoc` directly to requiring an `UploadPipeDocRequest` wrapper.
+
+**OLD API:**
+```java
+// Repository service accepted PipeDoc directly
+getRepoService().uploadPipeDoc(pipeDoc)
+```
+
+**NEW API:**
+```java
+// Must wrap PipeDoc in UploadPipeDocRequest
+ai.pipestream.repository.v1.filesystem.upload.UploadPipeDocRequest repoRequest =
+    ai.pipestream.repository.v1.filesystem.upload.UploadPipeDocRequest.newBuilder()
+        .setDocument(pipeDoc)
+        .build();
+
+getRepoService().uploadPipeDoc(repoRequest)
+```
+
+**Response Type Changes:**
+- Returns: `ai.pipestream.repository.v1.filesystem.upload.UploadPipeDocResponse`
+- Contains: `getSuccess()`, `getDocumentId()`, `getMessage()`
+
+**Connector Intake Response Types:**
+The connector-intake-service API no longer has a generic `UploadResponse`. Use specific response types:
+
+- `UploadPipeDocResponse` for `uploadPipeDoc` method (field: `setDocId` not `setDocumentId`)
+- `UploadBlobResponse` for `uploadBlob` method (field: `setDocId` not `setDocumentId`)
+
+**Example:**
+```java
+// Map repository response to connector response
+.map(repoResponse -> UploadPipeDocResponse.newBuilder()
+    .setSuccess(repoResponse.getSuccess())
+    .setDocId(repoResponse.getDocumentId())  // Note: setDocId on intake, getDocumentId from repo
+    .setMessage(repoResponse.getMessage())
+    .build())
+```
+
+### 13.7 Filesystem Service Node Type Enum
+
+The `NodeType` enum values changed to include prefix:
+
+**OLD:**
+```java
+.setType(Node.NodeType.FILE)
+```
+
+**NEW:**
+```java
+.setType(Node.NodeType.NODE_TYPE_FILE)
+```
+
+Available values: `NODE_TYPE_UNSPECIFIED`, `NODE_TYPE_FOLDER`, `NODE_TYPE_FILE`
+
+### 13.8 Account Response Structure
+
+The `GetAccountResponse` no longer exposes account fields directly - use the nested `Account` object:
+
+**OLD:**
+```java
+.flatMap(account -> {
+    if (!account.getActive()) {
+        // ...
+    }
+})
+```
+
+**NEW:**
+```java
+.flatMap(response -> {
+    Account account = response.getAccount();
+    if (!account.getActive()) {
+        // ...
+    }
+})
+```
+
+### 13.9 CreateNode Response Structure
+
+Similar change for `CreateNodeResponse` - access the `Node` object:
+
+**OLD:**
+```java
+.map(response -> {
+    String docId = response.getDocumentId();
+})
+```
+
+**NEW:**
+```java
+.map(response -> {
+    Node node = response.getNode();
+    String docId = node.getDocumentId();
+})
+```
+
+### 13.10 Migration Checklist for Dynamic-gRPC
+
+- [ ] Update all `import ai.pipestream.dynamic.grpc.client.*` to `import ai.pipestream.quarkus.dynamicgrpc.*`
+- [ ] Replace `DynamicGrpcClientFactory.getXxxServiceClient(serviceName)` with `getClient(serviceName, MutinyXxxServiceGrpc::newMutinyStub)`
+- [ ] Add imports for all Mutiny service stub classes (`MutinyXxxServiceGrpc`)
+- [ ] Replace static host:port connections with `ManagedChannelBuilder` or migrate to Stork
+- [ ] Wrap `PipeDoc` in `UploadPipeDocRequest` for repository uploads
+- [ ] Update response handling to access nested objects (`response.getAccount()`, `response.getNode()`)
+- [ ] Update `NodeType` enum references to include `NODE_TYPE_` prefix
+- [ ] Replace generic `UploadResponse` with specific `UploadPipeDocResponse` / `UploadBlobResponse`
+- [ ] Update response builders to use `setDocId` instead of `setDocumentId` for connector-intake responses
+
+### 13.11 Benefits of New API
+
+- **Type Safety:** Method references ensure compile-time validation of stub creators
+- **Simplicity:** Single generic method instead of multiple service-specific methods
+- **Flexibility:** Easy to add new service clients without modifying the factory interface
+- **Zero Reflection:** Method references are more efficient than class-based lookup
+- **Clear Separation:** Stork-based discovery vs. static host:port patterns are more explicit
+
+---
+
 
 

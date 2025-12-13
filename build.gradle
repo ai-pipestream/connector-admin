@@ -22,7 +22,7 @@ scmVersion {
     }
 }
 
-def pipestreamBomVersion = findProperty('pipestreamBomVersion') ?: '0.7.2'
+def pipestreamBomVersion = findProperty('pipestreamBomVersion') ?: '0.7.3'
 
 // 1. Define the export path (single directory for all protos)
 def bufExportDir = layout.buildDirectory.dir("generated/buf-protos")
