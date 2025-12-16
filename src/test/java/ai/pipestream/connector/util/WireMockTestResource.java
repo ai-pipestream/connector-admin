@@ -17,6 +17,7 @@ import java.util.Map;
  *   <li>Exposes WireMock host and port via system properties for test access</li>
  * </ul>
  */
+@SuppressWarnings("unused")
 public class WireMockTestResource implements QuarkusTestResourceLifecycleManager {
 
     private static WireMockTestResource instance;
@@ -32,8 +33,9 @@ public class WireMockTestResource implements QuarkusTestResourceLifecycleManager
     public Map<String, String> start() {
         // Use configurable gRPC port, defaulting to 50052
         int grpcPort = Integer.parseInt(System.getProperty("wiremock.grpc.port", "50052"));
+        //noinspection resource
         wireMockContainer = new GenericContainer<>(
-                DockerImageName.parse("docker.io/pipestreamai/pipestream-wiremock-server:0.1.8"))
+                DockerImageName.parse("docker.io/pipestreamai/pipestream-wiremock-server:0.1.18"))
                 .withExposedPorts(8080, grpcPort)
                 .waitingFor(Wait.forLogMessage(".*Direct Streaming gRPC Server started.*", 1))
                 // Configure additional test accounts via environment variables

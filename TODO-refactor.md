@@ -257,7 +257,7 @@ This migration standardizes all Pipestream services with:
       public Map<String, String> start() {
           int grpcPort = Integer.parseInt(System.getProperty("wiremock.grpc.port", "50052"));
           wireMockContainer = new GenericContainer<>(
-                  DockerImageName.parse("docker.io/pipestreamai/pipestream-wiremock-server:0.1.8"))
+                  DockerImageName.parse("docker.io/pipestreamai/pipestream-wiremock-server:0.1.18"))
                   .withExposedPorts(8080, grpcPort)
                   .waitingFor(Wait.forLogMessage(".*Direct Streaming gRPC Server started.*", 1))
                   .withEnv("WIREMOCK_SERVICE_MOCK_CONFIG", "...");

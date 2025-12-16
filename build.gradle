@@ -6,8 +6,9 @@ plugins {
     alias(libs.plugins.quarkus)
     alias(libs.plugins.maven.publish)
     id 'signing'
-    id 'com.gradleup.nmcp' version '1.2.0'
-    id 'pl.allegro.tech.build.axion-release' version '1.18.16'
+    alias(libs.plugins.nmcp.single)
+    alias(libs.plugins.axion.release)
+    alias(libs.plugins.proto.toolchain)
 }
 
 // Axion-release configuration for automatic versioning
@@ -22,77 +23,22 @@ scmVersion {
     }
 }
 
-def pipestreamBomVersion = findProperty('pipestreamBomVersion') ?: '0.7.3'
+// Proto toolchain configuration - fetches from Git and generates Java/gRPC code
+pipestreamProtos {
+    sourceMode = 'git'
 
-// 1. Define the export path (single directory for all protos)
-def bufExportDir = layout.buildDirectory.dir("generated/buf-protos")
-
-// 2. The Sync Tasks
-// Export Connector/Admin service protos (Intake repo) used by this service's gRPC API
-tasks.register('syncProtosIntake', Exec) {
-    group = 'protobuf'
-    description = 'Exports proto files from Buf Registry (intake)'
-    // Use bash -lc so the user's PATH (sdkman, homebrew, etc.) is honored for the buf CLI
-    commandLine 'bash', '-lc', "buf export buf.build/pipestreamai/intake --output ${bufExportDir.get().asFile.path}"
-
-    outputs.dir(bufExportDir)
-    doFirst {
-        // ensure parent dir exists
-        bufExportDir.get().asFile.mkdirs()
-    }
-}
-
-// Export Repository/Kafka event protos (admin repo) needed for AccountEvent consumer
-tasks.register('syncProtosAdmin', Exec) {
-    group = 'protobuf'
-    description = 'Exports proto files from Buf Registry (admin)'
-    // Use bash -lc so the user's PATH is honored inside the Gradle daemon
-    commandLine 'bash', '-lc', "buf export buf.build/pipestreamai/admin --output ${bufExportDir.get().asFile.path}"
-
-    outputs.dir(bufExportDir)
-    doFirst {
-        bufExportDir.get().asFile.mkdirs()
-    }
-}
-
-// Aggregate task kept as the canonical dependency for codegen
-tasks.register('syncProtos') {
-    group = 'protobuf'
-    description = 'Exports all required proto files (intake + admin)'
-    dependsOn 'syncProtosIntake', 'syncProtosAdmin'
-}
-
-// 3. Configure Quarkus to find the protos
-quarkus {
-    // Point to the single directory containing all exported protos
-    quarkusBuildProperties.put("quarkus.grpc.codegen.proto-directory", bufExportDir.get().asFile.path)
-    quarkusBuildProperties.put("quarkus.grpc.codegen.enabled", "true")
-}
-
-// 4. CRITICAL: Fix Build Order & IDE Visibility
-sourceSets {
-    main {
-        java {
-            // Tell IntelliJ/Gradle where Quarkus puts the generated Java files
-            srcDir layout.buildDirectory.dir("classes/java/quarkus-generated-sources/grpc")
+    modules {
+        register("intake") {
+            gitRepo = "https://github.com/ai-pipestream/pipestream-protos.git"
+            gitRef = "main"
+            gitSubdir = "intake"
+        }
+        register("admin") {
+            gitRepo = "https://github.com/ai-pipestream/pipestream-protos.git"
+            gitRef = "main"
+            gitSubdir = "admin"
         }
     }
-}
-
-// 5. Hook into the correct Quarkus tasks
-tasks.named('quarkusGenerateCode').configure {
-    dependsOn 'syncProtos'
-}
-tasks.named('quarkusGenerateCodeDev').configure {
-    dependsOn 'syncProtos'
-}
-tasks.named('quarkusGenerateCodeTests').configure {
-    dependsOn 'syncProtos'
-}
-
-// Ensure Java compilation happens after gRPC code generation
-tasks.named('compileJava').configure {
-    dependsOn 'quarkusGenerateCode'
 }
 
 repositories {
@@ -101,11 +47,14 @@ repositories {
 }
 
 dependencies {
-    implementation 'io.quarkus:quarkus-container-image-docker'
+    // Import pipeline BOM to align all managed versions
+    // Version defined in gradle.properties as single source of truth
     implementation platform("ai.pipestream:pipestream-bom:${pipestreamBomVersion}")
+    
+    implementation 'io.quarkus:quarkus-container-image-docker'
 
     // Dev services infrastructure (shared Docker Compose stack)
-    implementation libs.pipestream.devservices
+    implementation 'ai.pipestream:pipestream-quarkus-devservices'
 
     // Core Quarkus dependencies
     implementation 'io.quarkus:quarkus-hibernate-orm-panache'
@@ -121,8 +70,9 @@ dependencies {
 
     // Kafka dependencies
     implementation 'io.quarkus:quarkus-messaging-kafka'
-    // New Apicurio Extension
-    implementation libs.quarkus.apicurio.registry.protobuf
+    // Quarkus Apicurio Registry Protobuf Extension (Zero-Config)
+    // Version managed by pipestream-bom
+    implementation 'ai.pipestream:quarkus-apicurio-registry-protobuf'
 
     // Service Discovery dependencies
     implementation 'io.smallrye.stork:stork-service-discovery-consul'
@@ -142,6 +92,7 @@ dependencies {
     // Test dependencies
     testImplementation 'io.quarkus:quarkus-junit5'
     testImplementation libs.smallrye.reactive.messaging.in.memory
+    testImplementation libs.awaitility
     testImplementation platform('org.testcontainers:testcontainers-bom:2.0.1')
     testImplementation 'org.testcontainers:testcontainers'
     testImplementation 'org.testcontainers:junit-jupiter'
@@ -205,10 +156,6 @@ processResources {
     }
 }
 
-// Make sure archives include generated sources after codegen
-tasks.named('sourcesJar').configure { t ->
-    dependsOn 'quarkusGenerateCode'
-}
 
 processTestResources {
     filesMatching('**/*.properties') {
