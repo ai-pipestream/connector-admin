@@ -5,112 +5,66 @@ import jakarta.persistence.*;
 import java.time.OffsetDateTime;
 
 /**
- * Connector entity representing external data sources.
+ * Connector entity representing a connector type/template.
  * <p>
- * Connectors authenticate via API keys to ingest documents into the platform.
- * Each connector can be linked to multiple accounts via the connector_accounts
- * junction table.
+ * Connectors are pre-seeded type definitions (e.g., "s3", "file-crawler") that
+ * are reusable across accounts. Each account creates a {@link DataSource} binding
+ * to use a connector type.
  * <p>
  * Database Table: {@code connectors}
  * <p>
- * API keys are stored hashed for security. The plaintext key is only returned
- * once during registration or rotation.
+ * Note: API keys are NOT stored on Connector. Each DataSource has its own API key.
  */
 @Entity
 @Table(name = "connectors")
 public class Connector extends PanacheEntityBase {
 
     /**
-     * Unique connector identifier (primary key).
-     * Generated as UUID.
+     * Unique connector type identifier (primary key).
+     * Deterministic: hash(connector_type)
      */
     @Id
     @Column(name = "connector_id", unique = true, nullable = false)
     public String connectorId;
 
     /**
-     * Platform-unique connector name.
-     * Used for identification and logging.
+     * Connector type name (e.g., "s3", "file-crawler", "confluence").
+     * Must be unique across all connector types.
      */
-    @Column(name = "connector_name", unique = true, nullable = false)
-    public String connectorName;
-
-    /**
-     * Connector type identifier.
-     * Examples: "filesystem", "confluence", "database", "api"
-     */
-    @Column(name = "connector_type", nullable = false)
+    @Column(name = "connector_type", unique = true, nullable = false)
     public String connectorType;
 
     /**
-     * Optional description of the connector.
+     * Human-readable display name.
      */
-    @Column(name = "description")
+    @Column(name = "name", nullable = false)
+    public String name;
+
+    /**
+     * Description of the connector type.
+     */
+    @Column(name = "description", columnDefinition = "TEXT")
     public String description;
 
     /**
-     * Hashed API key for authentication.
-     * Never expose the plaintext key after initial generation.
-     * Uses BCrypt or similar hashing algorithm.
+     * Management type: UNMANAGED or MANAGED.
+     * UNMANAGED = external systems push via API key, no connector app.
+     * MANAGED = platform-managed with health checks, scheduling, etc.
      */
-    @Column(name = "api_key_hash", nullable = false)
-    public String apiKeyHash;
+    @Column(name = "management_type", nullable = false)
+    public String managementType = "UNMANAGED";
 
     /**
-     * Whether the connector is active.
-     * Inactive connectors cannot authenticate or ingest documents.
-     * Default: true
+     * Timestamp when the connector type was created.
      */
-    @Column(name = "active", nullable = false)
-    public Boolean active = true;
-
-    /**
-     * Status reason for connector state.
-     * Examples: "account_inactive", "manual_disable", "api_key_rotated"
-     * Null if connector is active without special status.
-     */
-    @Column(name = "status_reason")
-    public String statusReason;
-
-    /**
-     * Timestamp when the connector was created.
-     */
-    @Column(name = "created_at")
+    @Column(name = "created_at", columnDefinition = "TIMESTAMP WITH TIME ZONE")
     public OffsetDateTime createdAt;
 
     /**
-     * Timestamp when the connector was last updated.
+     * Timestamp when the connector type was last updated.
      */
-    @Column(name = "updated_at")
+    @Column(name = "updated_at", columnDefinition = "TIMESTAMP WITH TIME ZONE")
     public OffsetDateTime updatedAt;
-
-    /**
-     * Timestamp when the API key was last rotated.
-     * Null if key has never been rotated.
-     */
-    @Column(name = "last_rotated_at")
-    public OffsetDateTime lastRotatedAt;
-
-    /**
-     * Additional connector metadata as JSON.
-     * Stores S3 config, limits, default metadata, etc.
-     */
-    @Column(name = "metadata", columnDefinition = "JSON")
-    public String metadata;
-
-    /**
-     * Reason for deletion (soft delete).
-     * Null if not deleted.
-     */
-    @Column(name = "deleted_reason")
-    public String deletedReason;
-
-    /**
-     * Timestamp when connector was deleted (soft delete).
-     * Null if not deleted.
-     */
-    @Column(name = "deleted_at")
-    public OffsetDateTime deletedAt;
 
     /**
      * Default constructor for JPA.
@@ -118,25 +72,22 @@ public class Connector extends PanacheEntityBase {
     public Connector() {}
 
     /**
-     * Create a new active connector with hashed API key.
+     * Create a new connector type.
      *
-     * @param connectorId Unique identifier (UUID)
-     * @param connectorName Platform-unique name
-     * @param connectorType Type identifier
-     * @param description Optional description
-     * @param apiKeyHash Hashed API key
+     * @param connectorId Unique identifier (deterministic hash of connectorType)
+     * @param connectorType Type name (e.g., "s3", "file-crawler")
+     * @param name Human-readable display name
+     * @param description Description of the connector type
+     * @param managementType Whether "MANAGED" or "UNMANAGED"
      */
-    public Connector(String connectorId, String connectorName, String connectorType,
-                     String description, String apiKeyHash) {
+    public Connector(String connectorId, String connectorType, String name,
+                     String description, String managementType) {
         this.connectorId = connectorId;
-        this.connectorName = connectorName;
         this.connectorType = connectorType;
+        this.name = name;
         this.description = description;
-        this.apiKeyHash = apiKeyHash;
-        this.active = true;
+        this.managementType = managementType;
         this.createdAt = OffsetDateTime.now();
         this.updatedAt = OffsetDateTime.now();
-        this.lastRotatedAt = null;
-        this.metadata = "{}"; // Empty JSON object
     }
 }

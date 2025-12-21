@@ -1,8 +1,8 @@
 package ai.pipestream.connector.service;
 
-import ai.pipestream.repository.v1.account.AccountEvent;
-import ai.pipestream.connector.entity.ConnectorAccount;
-import ai.pipestream.connector.repository.ConnectorRepository;
+import ai.pipestream.repository.account.v1.AccountEvent;
+import ai.pipestream.connector.entity.DataSource;
+import ai.pipestream.connector.repository.DataSourceRepository;
 import io.smallrye.reactive.messaging.annotations.Blocking;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -12,10 +12,10 @@ import org.jboss.logging.Logger;
 import java.util.List;
 
 /**
- * Consumes account lifecycle events and synchronizes connector status.
+ * Consumes account lifecycle events and synchronizes datasource status.
  * <p>
  * Listens for account inactivation/reactivation events and automatically
- * disables or re-enables connectors linked to those accounts to preserve
+ * disables or re-enables datasources for those accounts to preserve
  * authorization invariants across services.
  * <p>
  * Reactive semantics:
@@ -32,8 +32,8 @@ import java.util.List;
  *
  * Side effects:
  * <ul>
- * <li>Writes to the connectors table via {@link ConnectorRepository} to
- * enable/disable connectors.</li>
+ * <li>Writes to the datasources table via {@link DataSourceRepository} to
+ * enable/disable datasources.</li>
  * <li>Emits INFO/WARN logs for auditing.</li>
  * </ul>
  */
@@ -43,15 +43,15 @@ public class AccountEventListener {
     private static final Logger LOG = Logger.getLogger(AccountEventListener.class);
 
     @Inject
-    ConnectorRepository connectorRepository;
+    DataSourceRepository dataSourceRepository;
 
     /**
-     * Handles an account lifecycle event and reconciles connector status
+     * Handles an account lifecycle event and reconciles datasource status
      * accordingly.
      * <p>
-     * - On inactivation: disables all connectors linked to the account with
+     * - On inactivation: disables all datasources for the account with
      * status_reason="account_inactive".
-     * - On reactivation: re-enables connectors that were disabled for
+     * - On reactivation: re-enables datasources that were disabled for
      * status_reason="account_inactive".
      * <p>
      * Reactive semantics:
@@ -62,7 +62,7 @@ public class AccountEventListener {
      * - Handler is idempotent to tolerate at-least-once delivery.
      * <p>
      * Side effects:
-     * - Writes to the connectors table via {@link ConnectorRepository}.
+     * - Writes to the datasources table via {@link DataSourceRepository}.
      * - Emits INFO/WARN logs for auditing and diagnostics.
      *
      * @param event Account event payload carrying the operation and account
@@ -103,72 +103,67 @@ public class AccountEventListener {
     /**
      * Handle account inactivation.
      * <p>
-     * Disables all connectors for the account and sets
+     * Disables all datasources for the account and sets
      * status_reason="account_inactive".
      */
     private void handleAccountInactivated(String accountId, String reason) {
         LOG.infof("Account inactivated: accountId=%s, reason=%s", accountId, reason);
 
-        // Find all connectors for this account
-        List<ConnectorAccount> connectorAccounts = connectorRepository.findByAccountId(accountId);
+        // Find all datasources for this account
+        List<DataSource> datasources = dataSourceRepository.listByAccount(accountId, true, 0, 0);
 
-        if (connectorAccounts.isEmpty()) {
-            LOG.debugf("No connectors found for account: %s", accountId);
+        if (datasources.isEmpty()) {
+            LOG.debugf("No datasources found for account: %s", accountId);
             return;
         }
 
         int disabledCount = 0;
-        for (ConnectorAccount connectorAccount : connectorAccounts) {
-            String connectorId = connectorAccount.connectorId;
-
+        for (DataSource datasource : datasources) {
             // Only disable if currently active
-            if (connectorAccount.connector.active) {
-                connectorRepository.disableConnector(connectorId, "account_inactive");
+            if (datasource.active) {
+                dataSourceRepository.setDataSourceStatus(datasource.datasourceId, false, "account_inactive");
                 disabledCount++;
-                LOG.infof("Disabled connector: connectorId=%s, accountId=%s, reason=account_inactive",
-                        connectorId, accountId);
+                LOG.infof("Disabled datasource: datasourceId=%s, accountId=%s, reason=account_inactive",
+                        datasource.datasourceId, accountId);
             } else {
-                LOG.debugf("Connector already inactive: connectorId=%s", connectorId);
+                LOG.debugf("DataSource already inactive: datasourceId=%s", datasource.datasourceId);
             }
         }
 
-        LOG.infof("Account inactivation complete: accountId=%s, connectorsDisabled=%d", accountId, disabledCount);
+        LOG.infof("Account inactivation complete: accountId=%s, datasourcesDisabled=%d", accountId, disabledCount);
     }
 
     /**
      * Handle account reactivation.
      * <p>
-     * Re-enables connectors that were disabled due to account inactivation.
-     * Only re-enables connectors with status_reason="account_inactive".
+     * Re-enables datasources that were disabled due to account inactivation.
+     * Only re-enables datasources with status_reason="account_inactive".
      */
     private void handleAccountReactivated(String accountId, String reason) {
         LOG.infof("Account reactivated: accountId=%s, reason=%s", accountId, reason);
 
-        // Find all connectors for this account
-        List<ConnectorAccount> connectorAccounts = connectorRepository.findByAccountId(accountId);
+        // Find all datasources for this account (including inactive)
+        List<DataSource> datasources = dataSourceRepository.listByAccount(accountId, true, 0, 0);
 
-        if (connectorAccounts.isEmpty()) {
-            LOG.debugf("No connectors found for account: %s", accountId);
+        if (datasources.isEmpty()) {
+            LOG.debugf("No datasources found for account: %s", accountId);
             return;
         }
 
         int reactivatedCount = 0;
-        for (ConnectorAccount connectorAccount : connectorAccounts) {
-            String connectorId = connectorAccount.connectorId;
-
+        for (DataSource datasource : datasources) {
             // Only re-enable if disabled due to account inactivation
-            if (!connectorAccount.connector.active
-                    && "account_inactive".equals(connectorAccount.connector.statusReason)) {
-                connectorRepository.enableConnector(connectorId);
+            if (!datasource.active && "account_inactive".equals(datasource.statusReason)) {
+                dataSourceRepository.setDataSourceStatus(datasource.datasourceId, true, null);
                 reactivatedCount++;
-                LOG.infof("Re-enabled connector: connectorId=%s, accountId=%s",
-                        connectorId, accountId);
+                LOG.infof("Re-enabled datasource: datasourceId=%s, accountId=%s",
+                        datasource.datasourceId, accountId);
             } else {
-                LOG.debugf("Connector not eligible for re-enablement: connectorId=%s, active=%s, statusReason=%s",
-                        connectorId, connectorAccount.connector.active, connectorAccount.connector.statusReason);
+                LOG.debugf("DataSource not eligible for re-enablement: datasourceId=%s, active=%s, statusReason=%s",
+                        datasource.datasourceId, datasource.active, datasource.statusReason);
             }
         }
 
-        LOG.infof("Account reactivation complete: accountId=%s, connectorsReactivated=%d", accountId, reactivatedCount);
+        LOG.infof("Account reactivation complete: accountId=%s, datasourcesReactivated=%d", accountId, reactivatedCount);
     }
 }
