@@ -128,6 +128,37 @@ public class DataSource extends PanacheEntityBase {
     public Connector connector;
 
     /**
+     * Tier 1 configuration overrides (serialized protobuf).
+     * Serialized ConnectorGlobalConfig protobuf message containing:
+     * PersistenceConfig, RetentionConfig, EncryptionConfig, HydrationConfig.
+     * Overrides connector defaults for this specific datasource instance.
+     */
+    @Column(name = "global_config_proto", columnDefinition = "BYTEA")
+    public byte[] globalConfigProto;
+
+    /**
+     * Custom configuration overrides (JSON Schema-validated).
+     * Instance-level custom configuration that overrides connector defaults.
+     */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "custom_config", columnDefinition = "jsonb")
+    public String customConfig;
+
+    /**
+     * Schema version used for validation of custom_config.
+     * References connector_config_schemas.schema_id.
+     */
+    @Column(name = "custom_config_schema_id")
+    public String customConfigSchemaId;
+
+    /**
+     * Many-to-one relationship to ConnectorConfigSchema entity.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "custom_config_schema_id", insertable = false, updatable = false)
+    public ConnectorConfigSchema configSchema;
+
+    /**
      * Default constructor for JPA.
      */
     public DataSource() {}

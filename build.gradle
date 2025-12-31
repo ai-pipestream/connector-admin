@@ -23,21 +23,19 @@ scmVersion {
     }
 }
 
-// Proto toolchain configuration - fetches from Git and generates Java/gRPC code
+// Proto toolchain configuration - uses git-proto-workspace mode for cross-module imports
 pipestreamProtos {
-    sourceMode = 'git'
+    sourceMode = 'git-proto-workspace'
+    gitRepo = "https://github.com/ai-pipestream/pipestream-protos.git"
+    gitRef = "main"
+    generateMutiny = true
+    generateDescriptors = true
 
     modules {
-        register("intake") {
-            gitRepo = "https://github.com/ai-pipestream/pipestream-protos.git"
-            gitRef = "main"
-            gitSubdir = "intake"
-        }
-        register("admin") {
-            gitRepo = "https://github.com/ai-pipestream/pipestream-protos.git"
-            gitRef = "main"
-            gitSubdir = "admin"
-        }
+        // Just register module names - workspace mode handles dependencies automatically
+        register("common")
+        register("intake")
+        register("admin")
     }
 }
 

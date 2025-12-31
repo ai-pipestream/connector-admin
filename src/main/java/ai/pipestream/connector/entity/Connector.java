@@ -2,6 +2,8 @@ package ai.pipestream.connector.entity;
 
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import jakarta.persistence.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import java.time.OffsetDateTime;
 
 /**
@@ -65,6 +67,66 @@ public class Connector extends PanacheEntityBase {
      */
     @Column(name = "updated_at", columnDefinition = "TIMESTAMP WITH TIME ZONE")
     public OffsetDateTime updatedAt;
+
+    /**
+     * Reference to connector configuration schema.
+     * Used for JSON Schema validation of custom configuration.
+     */
+    @Column(name = "custom_config_schema_id")
+    public String customConfigSchemaId;
+
+    /**
+     * Default value for persist_pipedoc configuration (Tier 1).
+     * Applies to all DataSources using this connector unless overridden.
+     */
+    @Column(name = "default_persist_pipedoc")
+    public Boolean defaultPersistPipedoc = true;
+
+    /**
+     * Default maximum inline size in bytes (Tier 1).
+     * Documents larger than this will be persisted to S3.
+     */
+    @Column(name = "default_max_inline_size_bytes")
+    public Integer defaultMaxInlineSizeBytes = 1048576; // 1MB default
+
+    /**
+     * Default custom configuration values (JSON Schema-validated).
+     * Default values for connector-specific configuration fields.
+     */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "default_custom_config", columnDefinition = "jsonb")
+    public String defaultCustomConfig;
+
+    /**
+     * Display name for UI/admin interfaces.
+     */
+    @Column(name = "display_name")
+    public String displayName;
+
+    /**
+     * Owner of the connector type.
+     */
+    @Column(name = "owner")
+    public String owner;
+
+    /**
+     * Documentation URL for the connector type.
+     */
+    @Column(name = "documentation_url", columnDefinition = "TEXT")
+    public String documentationUrl;
+
+    /**
+     * Tags for categorizing connector types.
+     */
+    @Column(name = "tags", columnDefinition = "TEXT[]")
+    public String[] tags;
+
+    /**
+     * Many-to-one relationship to ConnectorConfigSchema entity.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "custom_config_schema_id", insertable = false, updatable = false)
+    public ConnectorConfigSchema configSchema;
 
     /**
      * Default constructor for JPA.
