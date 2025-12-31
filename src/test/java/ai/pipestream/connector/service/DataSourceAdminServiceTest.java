@@ -1,7 +1,12 @@
 package ai.pipestream.connector.service;
 
+import ai.pipestream.connector.entity.Connector;
 import ai.pipestream.connector.entity.DataSource;
 import ai.pipestream.connector.intake.v1.*;
+import ai.pipestream.data.v1.HydrationConfig;
+import com.google.protobuf.Struct;
+import jakarta.inject.Inject;
+import jakarta.persistence.EntityManager;
 import io.quarkus.grpc.GrpcClient;
 import io.quarkus.test.junit.QuarkusTest;
 import jakarta.transaction.Transactional;
@@ -18,6 +23,9 @@ public class DataSourceAdminServiceTest {
 
     @GrpcClient
     MutinyDataSourceAdminServiceGrpc.MutinyDataSourceAdminServiceStub dataSourceAdminService;
+
+    @Inject
+    EntityManager entityManager;
 
     private static final String TEST_CONNECTOR_ID = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"; // Pre-seeded S3
     private static final String TEST_ACCOUNT_ID = "test-account";
@@ -485,5 +493,134 @@ public class DataSourceAdminServiceTest {
         // Verify persist_pipedoc is set - just verify the config is present and has a value
         // System default is true, connector may override, but it should be set
         assertNotNull(globalConfig.getPersistenceConfig());
+    }
+
+    @Test
+    void testValidateApiKey_MergedOverrides_ConnectorDefaults_DataSourceColumnAndProto() {
+        String uniqueAccount = TEST_ACCOUNT_ID + "-" + System.currentTimeMillis();
+
+        // Arrange: set connector defaults (Tier 1 defaults)
+        Connector original = setConnectorDefaults(TEST_CONNECTOR_ID,
+            false,
+            2097152,
+            "{\"connector_setting\":\"default_value\",\"parse_images\":true}"
+        );
+
+        try {
+            // Create datasource
+            CreateDataSourceRequest createRequest = CreateDataSourceRequest.newBuilder()
+                .setAccountId(uniqueAccount)
+                .setConnectorId(TEST_CONNECTOR_ID)
+                .setName("Merged Overrides Test")
+                .setDriveName("test-drive")
+                .build();
+
+            CreateDataSourceResponse createResponse = dataSourceAdminService.createDataSource(createRequest)
+                .await().indefinitely();
+            assertTrue(createResponse.getSuccess());
+            String datasourceId = createResponse.getDatasource().getDatasourceId();
+            String apiKey = createResponse.getDatasource().getApiKey();
+
+            // Arrange: datasource column override custom_config
+            setDatasourceCustomConfig(datasourceId, "{\"connector_setting\":\"override_value\",\"new_setting\":123}");
+
+            // Arrange: datasource proto override (highest priority for strongly typed fields)
+            DataSourceConfig.ConnectorGlobalConfig protoOverride =
+                DataSourceConfig.ConnectorGlobalConfig.newBuilder()
+                    .setPersistenceConfig(
+                        DataSourceConfig.PersistenceConfig.newBuilder()
+                            .setPersistPipedoc(true) // override connector default false
+                            .setMaxInlineSizeBytes(5242880) // 5MB
+                            .build()
+                    )
+                    .setHydrationConfig(
+                        HydrationConfig.newBuilder()
+                            .setDefaultHydrationPolicy(HydrationConfig.HydrationPolicy.HYDRATION_POLICY_ALWAYS_REF)
+                            .build()
+                    )
+                    .build();
+            setDatasourceGlobalConfigProto(datasourceId, protoOverride.toByteArray());
+
+            // Act
+            ValidateApiKeyRequest validateRequest = ValidateApiKeyRequest.newBuilder()
+                .setDatasourceId(datasourceId)
+                .setApiKey(apiKey)
+                .build();
+
+            ValidateApiKeyResponse response = dataSourceAdminService.validateApiKey(validateRequest)
+                .await().indefinitely();
+
+            // Assert
+            assertTrue(response.getValid());
+            assertTrue(response.getConfig().hasGlobalConfig());
+            var globalConfig = response.getConfig().getGlobalConfig();
+
+            // Strongly typed fields: should come from proto override
+            assertTrue(globalConfig.hasPersistenceConfig());
+            assertEquals(true, globalConfig.getPersistenceConfig().getPersistPipedoc());
+            assertEquals(5242880, globalConfig.getPersistenceConfig().getMaxInlineSizeBytes());
+            assertTrue(globalConfig.hasHydrationConfig());
+            assertEquals(HydrationConfig.HydrationPolicy.HYDRATION_POLICY_ALWAYS_REF,
+                globalConfig.getHydrationConfig().getDefaultHydrationPolicy());
+
+            // Custom config: connector defaults + datasource column override should be merged (proto had none)
+            assertTrue(globalConfig.hasCustomConfig());
+            Struct customConfig = globalConfig.getCustomConfig();
+            assertEquals("override_value", customConfig.getFieldsMap().get("connector_setting").getStringValue());
+            assertEquals(true, customConfig.getFieldsMap().get("parse_images").getBoolValue()); // from connector defaults
+            assertEquals(123, (int) customConfig.getFieldsMap().get("new_setting").getNumberValue());
+        } finally {
+            // Restore connector defaults so other tests aren't affected
+            restoreConnectorDefaults(original);
+        }
+    }
+
+    @Transactional
+    Connector setConnectorDefaults(String connectorId, Boolean persistPipedoc, Integer maxInlineSizeBytes, String defaultCustomConfig) {
+        Connector connector = Connector.findById(connectorId);
+        assertNotNull(connector);
+
+        Connector snapshot = new Connector();
+        snapshot.connectorId = connector.connectorId;
+        snapshot.defaultPersistPipedoc = connector.defaultPersistPipedoc;
+        snapshot.defaultMaxInlineSizeBytes = connector.defaultMaxInlineSizeBytes;
+        snapshot.defaultCustomConfig = connector.defaultCustomConfig;
+
+        connector.defaultPersistPipedoc = persistPipedoc;
+        connector.defaultMaxInlineSizeBytes = maxInlineSizeBytes;
+        connector.defaultCustomConfig = defaultCustomConfig;
+        connector.persist();
+        entityManager.flush();
+        return snapshot;
+    }
+
+    @Transactional
+    void restoreConnectorDefaults(Connector snapshot) {
+        if (snapshot == null) return;
+        Connector connector = Connector.findById(snapshot.connectorId);
+        if (connector == null) return;
+        connector.defaultPersistPipedoc = snapshot.defaultPersistPipedoc;
+        connector.defaultMaxInlineSizeBytes = snapshot.defaultMaxInlineSizeBytes;
+        connector.defaultCustomConfig = snapshot.defaultCustomConfig;
+        connector.persist();
+        entityManager.flush();
+    }
+
+    @Transactional
+    void setDatasourceCustomConfig(String datasourceId, String customConfigJson) {
+        DataSource ds = DataSource.findById(datasourceId);
+        assertNotNull(ds);
+        ds.customConfig = customConfigJson;
+        ds.persist();
+        entityManager.flush();
+    }
+
+    @Transactional
+    void setDatasourceGlobalConfigProto(String datasourceId, byte[] bytes) {
+        DataSource ds = DataSource.findById(datasourceId);
+        assertNotNull(ds);
+        ds.globalConfigProto = bytes;
+        ds.persist();
+        entityManager.flush();
     }
 }
