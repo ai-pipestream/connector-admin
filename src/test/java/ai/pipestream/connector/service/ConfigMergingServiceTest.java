@@ -92,12 +92,13 @@ public class ConfigMergingServiceTest {
         assertTrue(merged.hasPersistenceConfig());
         assertEquals(false, merged.getPersistenceConfig().getPersistPipedoc()); // From datasource proto override
         assertEquals(3145728, merged.getPersistenceConfig().getMaxInlineSizeBytes()); // From datasource proto override
-
-        // Custom config: datasource column custom_config should merge with connector, but proto override takes precedence
-        // Since we set proto override, it will have its own custom_config (if set in proto) or empty
-        // For this test, proto doesn't have custom_config, so it will use the merged connector+column config
-        // Actually wait - the proto merge will clear custom_config if proto doesn't have it. Let me check the behavior.
-        // Actually, mergeFrom preserves existing fields, so custom_config from connector+column should remain
+        
+        // Custom config should be merged from connector defaults + datasource column overrides
+        // because the proto override in this test does not include custom_config.
+        assertTrue(merged.hasCustomConfig());
+        Struct customConfig = merged.getCustomConfig();
+        assertEquals(false, customConfig.getFieldsMap().get("parse_images").getBoolValue()); // From datasource column
+        assertEquals(false, customConfig.getFieldsMap().get("include_history").getBoolValue()); // From connector defaults
     }
 
     @Test
