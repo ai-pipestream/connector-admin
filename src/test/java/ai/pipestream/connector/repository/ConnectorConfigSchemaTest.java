@@ -187,8 +187,6 @@ public class ConnectorConfigSchemaTest {
     @Test
     @Transactional
     void testDeleteConnectorConfigSchema() {
-        // Use a different connector to avoid FK issues, or ensure no connectors reference it
-        // For now, test that we can create and find, deletion tested implicitly via transaction rollback
         String schemaId = UUID.randomUUID().toString();
 
         ConnectorConfigSchema schema = new ConnectorConfigSchema(
@@ -196,11 +194,29 @@ public class ConnectorConfigSchemaTest {
             "{}", "{}", "test-user"
         );
         schema.persist();
+        entityManager.flush();
 
         assertNotNull(ConnectorConfigSchema.findById(schemaId));
-        
-        // Note: Deletion is tested implicitly - schema will be rolled back after test
-        // Explicit deletion requires clearing FK references first
+
+        // Explicit deletion should work when no connector references this schema
+        schema.delete();
+        entityManager.flush();
+
+        assertNull(ConnectorConfigSchema.findById(schemaId));
+    }
+
+    @Test
+    @Transactional
+    void testConnector_CustomConfigSchemaId_FkConstraintRequiresSchemaExists() {
+        Connector connector = repository.findConnectorById(TEST_CONNECTOR_ID);
+        assertNotNull(connector);
+
+        String nonexistentSchemaId = UUID.randomUUID().toString();
+        connector.customConfigSchemaId = nonexistentSchemaId;
+        connector.persist();
+
+        // Should fail on flush due to FK (connectors.custom_config_schema_id -> connector_config_schemas.schema_id)
+        assertThrows(Exception.class, () -> entityManager.flush());
     }
 
     @Test
