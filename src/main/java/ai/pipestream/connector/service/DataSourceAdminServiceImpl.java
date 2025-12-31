@@ -620,6 +620,38 @@ public class DataSourceAdminServiceImpl extends MutinyDataSourceAdminServiceGrpc
                 .build());
         }
 
+        // Extended registration/config fields
+        if (c.customConfigSchemaId != null) {
+            builder.setCustomConfigSchemaId(c.customConfigSchemaId);
+        }
+        if (c.defaultPersistPipedoc != null) {
+            builder.setDefaultPersistPipedoc(c.defaultPersistPipedoc);
+        }
+        if (c.defaultMaxInlineSizeBytes != null) {
+            builder.setDefaultMaxInlineSizeBytes(c.defaultMaxInlineSizeBytes);
+        }
+        if (c.defaultCustomConfig != null && !c.defaultCustomConfig.isEmpty() && !c.defaultCustomConfig.equals("{}")) {
+            try {
+                com.google.protobuf.Struct.Builder structBuilder = com.google.protobuf.Struct.newBuilder();
+                com.google.protobuf.util.JsonFormat.parser().merge(c.defaultCustomConfig, structBuilder);
+                builder.setDefaultCustomConfig(structBuilder.build());
+            } catch (Exception e) {
+                LOG.warnf(e, "Failed to parse connector default_custom_config for connector %s", c.connectorId);
+            }
+        }
+        if (c.displayName != null) {
+            builder.setDisplayName(c.displayName);
+        }
+        if (c.owner != null) {
+            builder.setOwner(c.owner);
+        }
+        if (c.documentationUrl != null) {
+            builder.setDocumentationUrl(c.documentationUrl);
+        }
+        if (c.tags != null && c.tags.length > 0) {
+            builder.addAllTags(java.util.List.of(c.tags));
+        }
+
         return builder.build();
     }
 
