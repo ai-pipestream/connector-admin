@@ -69,6 +69,9 @@ public class DataSourceAdminServiceImpl extends MutinyDataSourceAdminServiceGrpc
     @Inject
     ApiKeyUtil apiKeyUtil;
 
+    @Inject
+    ConfigMergingService configMergingService;
+
     /**
      * Creates a new datasource for an account.
      *
@@ -548,13 +551,22 @@ public class DataSourceAdminServiceImpl extends MutinyDataSourceAdminServiceGrpc
     /**
      * Convert DataSource entity to DataSourceConfig proto.
      * Lightweight config for runtime validation responses.
+     * Includes merged Tier 1 configuration (Connector defaults + DataSource overrides).
      */
     private DataSourceConfig toProtoDataSourceConfig(DataSource ds) {
+        // Load connector if not already loaded (relationship is EAGER, but be safe)
+        Connector connector = ds.connector != null ? ds.connector 
+            : dataSourceRepository.findConnectorById(ds.connectorId);
+
+        // Merge Tier 1 configuration
+        DataSourceConfig.ConnectorGlobalConfig mergedConfig = configMergingService.mergeTier1Config(connector, ds);
+
         DataSourceConfig.Builder builder = DataSourceConfig.newBuilder()
             .setAccountId(ds.accountId)
             .setDatasourceId(ds.datasourceId)
             .setConnectorId(ds.connectorId)
-            .setDriveName(ds.driveName);
+            .setDriveName(ds.driveName)
+            .setGlobalConfig(mergedConfig);
 
         // Add limits if set
         if (ds.maxFileSize != null && ds.maxFileSize > 0) {

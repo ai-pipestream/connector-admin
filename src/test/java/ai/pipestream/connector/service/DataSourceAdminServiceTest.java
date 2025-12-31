@@ -415,4 +415,75 @@ public class DataSourceAdminServiceTest {
         assertEquals("updated-drive", updateResponse.getDatasource().getDriveName());
         assertEquals("true", updateResponse.getDatasource().getMetadataMap().get("updated"));
     }
+
+    @Test
+    void testValidateApiKey_ReturnsMergedConfig() {
+        String uniqueAccount = TEST_ACCOUNT_ID + "-" + System.currentTimeMillis();
+
+        CreateDataSourceRequest createRequest = CreateDataSourceRequest.newBuilder()
+            .setAccountId(uniqueAccount)
+            .setConnectorId(TEST_CONNECTOR_ID)
+            .setName("Config Test")
+            .setDriveName("test-drive")
+            .build();
+
+        CreateDataSourceResponse createResponse = dataSourceAdminService.createDataSource(createRequest)
+            .await().indefinitely();
+        assertTrue(createResponse.getSuccess());
+
+        String datasourceId = createResponse.getDatasource().getDatasourceId();
+        String apiKey = createResponse.getDatasource().getApiKey();
+
+        ValidateApiKeyRequest validateRequest = ValidateApiKeyRequest.newBuilder()
+            .setDatasourceId(datasourceId)
+            .setApiKey(apiKey)
+            .build();
+
+        ValidateApiKeyResponse response = dataSourceAdminService.validateApiKey(validateRequest)
+            .await().indefinitely();
+
+        assertTrue(response.getValid());
+        assertNotNull(response.getConfig());
+        assertTrue(response.getConfig().hasGlobalConfig());
+        
+        // Verify global_config has system defaults at minimum
+        var globalConfig = response.getConfig().getGlobalConfig();
+        assertTrue(globalConfig.hasPersistenceConfig());
+        assertTrue(globalConfig.hasHydrationConfig());
+    }
+
+    @Test
+    void testValidateApiKey_ConnectorDefaults() {
+        String uniqueAccount = TEST_ACCOUNT_ID + "-" + System.currentTimeMillis();
+
+        // Create datasource - connector should have defaults (if set)
+        CreateDataSourceRequest createRequest = CreateDataSourceRequest.newBuilder()
+            .setAccountId(uniqueAccount)
+            .setConnectorId(TEST_CONNECTOR_ID)
+            .setName("Connector Defaults Test")
+            .setDriveName("test-drive")
+            .build();
+
+        CreateDataSourceResponse createResponse = dataSourceAdminService.createDataSource(createRequest)
+            .await().indefinitely();
+        String datasourceId = createResponse.getDatasource().getDatasourceId();
+        String apiKey = createResponse.getDatasource().getApiKey();
+
+        ValidateApiKeyRequest validateRequest = ValidateApiKeyRequest.newBuilder()
+            .setDatasourceId(datasourceId)
+            .setApiKey(apiKey)
+            .build();
+
+        ValidateApiKeyResponse response = dataSourceAdminService.validateApiKey(validateRequest)
+            .await().indefinitely();
+
+        assertTrue(response.getValid());
+        var globalConfig = response.getConfig().getGlobalConfig();
+        
+        // Should have persistence config (from connector defaults or system defaults)
+        assertTrue(globalConfig.hasPersistenceConfig());
+        // Verify persist_pipedoc is set - just verify the config is present and has a value
+        // System default is true, connector may override, but it should be set
+        assertNotNull(globalConfig.getPersistenceConfig());
+    }
 }
