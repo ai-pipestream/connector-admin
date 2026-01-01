@@ -55,10 +55,13 @@ dependencies {
     implementation 'ai.pipestream:pipestream-quarkus-devservices'
 
     // Core Quarkus dependencies
-    implementation 'io.quarkus:quarkus-hibernate-orm-panache'
+    // Hibernate Reactive Panache for fully reactive database access
+    implementation 'io.quarkus:quarkus-hibernate-reactive-panache'
+    implementation 'io.quarkus:quarkus-reactive-pg-client'
+    // JDBC driver still required for Flyway (Flyway doesn't support reactive drivers)
+    implementation 'io.quarkus:quarkus-jdbc-postgresql'
     implementation 'io.quarkus:quarkus-rest'
     implementation 'io.quarkus:quarkus-smallrye-health'
-    implementation 'io.quarkus:quarkus-jdbc-postgresql'
     implementation 'io.quarkus:quarkus-arc'
     implementation 'io.quarkus:quarkus-flyway'
     implementation 'org.flywaydb:flyway-database-postgresql'
@@ -89,6 +92,8 @@ dependencies {
 
     // Test dependencies
     testImplementation 'io.quarkus:quarkus-junit5'
+    testImplementation 'io.quarkus:quarkus-test-hibernate-reactive-panache'
+    testImplementation 'io.quarkus:quarkus-test-vertx'
     testImplementation libs.smallrye.reactive.messaging.in.memory
     testImplementation libs.awaitility
     // Testcontainers - version managed by pipestream-bom
