@@ -2,9 +2,11 @@ package ai.pipestream.connector.repository;
 
 import ai.pipestream.connector.entity.Connector;
 import ai.pipestream.connector.entity.DataSource;
+import io.quarkus.hibernate.reactive.panache.Panache;
 import io.quarkus.test.junit.QuarkusTest;
+import io.quarkus.test.vertx.RunOnVertxContext;
+import io.quarkus.test.vertx.UniAsserter;
 import jakarta.inject.Inject;
-import jakarta.transaction.Transactional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -14,7 +16,7 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Tests for DataSourceRepository CRUD operations.
+ * Tests for DataSourceRepository CRUD operations with Hibernate Reactive.
  */
 @QuarkusTest
 public class DataSourceRepositoryTest {
@@ -25,14 +27,15 @@ public class DataSourceRepositoryTest {
     private static final String TEST_CONNECTOR_ID = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"; // Pre-seeded S3 connector
 
     @BeforeEach
-    @Transactional
-    void setUp() {
-        // Clean up test data
-        DataSource.deleteAll();
+    @RunOnVertxContext
+    void setUp(UniAsserter asserter) {
+        // Clean up test data (reactive)
+        asserter.execute(() -> Panache.withTransaction(() -> DataSource.deleteAll()));
     }
 
     @Test
     void testGenerateDatasourceId_Deterministic() {
+        // These are synchronous methods, no need for reactive context
         String accountId = "test-account-123";
         String connectorId = TEST_CONNECTOR_ID;
 
@@ -48,6 +51,7 @@ public class DataSourceRepositoryTest {
 
     @Test
     void testGenerateDatasourceId_DifferentInputs() {
+        // These are synchronous methods, no need for reactive context
         String id1 = repository.generateDatasourceId("account-1", TEST_CONNECTOR_ID);
         String id2 = repository.generateDatasourceId("account-2", TEST_CONNECTOR_ID);
 
@@ -56,227 +60,302 @@ public class DataSourceRepositoryTest {
     }
 
     @Test
-    @Transactional
-    void testCreateDataSource_Success() {
+    @RunOnVertxContext
+    void testCreateDataSource_Success(UniAsserter asserter) {
         String accountId = "test-account-" + System.currentTimeMillis();
         String name = "Test DataSource";
         String apiKeyHash = "test-hash-123";
         String driveName = "test-drive";
 
-        DataSource ds = repository.createDataSource(
+        asserter.assertThat(() -> Panache.withTransaction(() -> repository.createDataSource(
             accountId, TEST_CONNECTOR_ID, name, apiKeyHash, driveName, "{\"key\":\"value\"}"
-        );
-
-        assertNotNull(ds);
-        assertNotNull(ds.datasourceId);
-        assertEquals(accountId, ds.accountId);
-        assertEquals(TEST_CONNECTOR_ID, ds.connectorId);
-        assertEquals(name, ds.name);
-        assertEquals(apiKeyHash, ds.apiKeyHash);
-        assertEquals(driveName, ds.driveName);
-        assertTrue(ds.active);
-        assertNotNull(ds.createdAt);
+        )), ds -> {
+            assertNotNull(ds);
+            assertNotNull(ds.datasourceId);
+            assertEquals(accountId, ds.accountId);
+            assertEquals(TEST_CONNECTOR_ID, ds.connectorId);
+            assertEquals(name, ds.name);
+            assertEquals(apiKeyHash, ds.apiKeyHash);
+            assertEquals(driveName, ds.driveName);
+            assertTrue(ds.active);
+            assertNotNull(ds.createdAt);
+        });
     }
 
     @Test
-    @Transactional
-    void testCreateDataSource_DuplicateFails() {
+    @RunOnVertxContext
+    void testCreateDataSource_DuplicateFails(UniAsserter asserter) {
         String accountId = "test-account-" + System.currentTimeMillis();
 
         // Create first datasource
-        DataSource ds1 = repository.createDataSource(
+        asserter.assertThat(() -> Panache.withTransaction(() -> repository.createDataSource(
             accountId, TEST_CONNECTOR_ID, "First", "hash1", "drive1", null
-        );
-        assertNotNull(ds1);
+        )), ds1 -> {
+            assertNotNull(ds1, "First datasource should be created");
+        });
 
         // Attempt to create duplicate
-        DataSource ds2 = repository.createDataSource(
+        asserter.assertThat(() -> Panache.withTransaction(() -> repository.createDataSource(
             accountId, TEST_CONNECTOR_ID, "Second", "hash2", "drive2", null
-        );
-        assertNull(ds2); // Should return null for duplicate
+        )), ds2 -> {
+            assertNull(ds2, "Duplicate datasource should return null");
+        });
     }
 
     @Test
-    @Transactional
-    void testFindByDatasourceId() {
+    @RunOnVertxContext
+    void testFindByDatasourceId(UniAsserter asserter) {
         String accountId = "test-account-" + System.currentTimeMillis();
 
-        DataSource created = repository.createDataSource(
+        asserter.assertThat(() -> Panache.withTransaction(() -> repository.createDataSource(
             accountId, TEST_CONNECTOR_ID, "Test", "hash", "drive", null
-        );
-
-        DataSource found = repository.findByDatasourceId(created.datasourceId);
-
-        assertNotNull(found);
-        assertEquals(created.datasourceId, found.datasourceId);
-        assertEquals(accountId, found.accountId);
+        )), created -> {
+            assertNotNull(created);
+            String datasourceId = created.datasourceId;
+            // Now find it by ID
+            asserter.assertThat(() -> Panache.withSession(() -> repository.findByDatasourceId(datasourceId)), found -> {
+                assertNotNull(found);
+                assertEquals(datasourceId, found.datasourceId);
+                assertEquals(accountId, found.accountId);
+            });
+        });
     }
 
     @Test
-    @Transactional
-    void testFindByAccountAndConnector() {
+    @RunOnVertxContext
+    void testFindByAccountAndConnector(UniAsserter asserter) {
         String accountId = "test-account-" + System.currentTimeMillis();
 
-        repository.createDataSource(
+        asserter.execute(() -> Panache.withTransaction(() -> repository.createDataSource(
             accountId, TEST_CONNECTOR_ID, "Test", "hash", "drive", null
-        );
+        ).replaceWithVoid()));
 
-        DataSource found = repository.findByAccountAndConnector(accountId, TEST_CONNECTOR_ID);
-
-        assertNotNull(found);
-        assertEquals(accountId, found.accountId);
-        assertEquals(TEST_CONNECTOR_ID, found.connectorId);
+        asserter.assertThat(() -> Panache.withSession(() -> repository.findByAccountAndConnector(accountId, TEST_CONNECTOR_ID)), found -> {
+            assertNotNull(found);
+            assertEquals(accountId, found.accountId);
+            assertEquals(TEST_CONNECTOR_ID, found.connectorId);
+        });
     }
 
     @Test
-    @Transactional
-    void testListByAccount() {
+    @RunOnVertxContext
+    void testListByAccount(UniAsserter asserter) {
         String accountId = "test-account-" + System.currentTimeMillis();
         String secondConnectorId = "b1ffc0aa-0d1c-5f09-cc7e-7cc0ce491b22"; // Pre-seeded file-crawler
 
-        repository.createDataSource(accountId, TEST_CONNECTOR_ID, "DS1", "hash1", "drive1", null);
-        repository.createDataSource(accountId, secondConnectorId, "DS2", "hash2", "drive2", null);
+        // Create first datasource
+        asserter.execute(() -> Panache.withTransaction(() -> 
+            repository.createDataSource(accountId, TEST_CONNECTOR_ID, "DS1", "hash1", "drive1", null)
+                .replaceWithVoid()
+        ));
+        
+        // Create second datasource
+        asserter.execute(() -> Panache.withTransaction(() -> 
+            repository.createDataSource(accountId, secondConnectorId, "DS2", "hash2", "drive2", null)
+                .replaceWithVoid()
+        ));
 
-        List<DataSource> list = repository.listByAccount(accountId, false, 0, 0);
-
-        assertEquals(2, list.size());
+        // List all datasources for account
+        asserter.assertThat(() -> Panache.withSession(() -> 
+            repository.listByAccount(accountId, false, 0, 0)
+        ), list -> {
+            assertEquals(2, list.size(), "Should find 2 datasources for account");
+        });
     }
 
     @Test
-    @Transactional
-    void testSetDataSourceStatus() {
+    @RunOnVertxContext
+    void testSetDataSourceStatus(UniAsserter asserter) {
         String accountId = "test-account-" + System.currentTimeMillis();
 
-        DataSource ds = repository.createDataSource(
+        asserter.assertThat(() -> Panache.withTransaction(() -> repository.createDataSource(
             accountId, TEST_CONNECTOR_ID, "Test", "hash", "drive", null
-        );
-        assertTrue(ds.active);
+        )), ds -> {
+            assertTrue(ds.active);
+            String datasourceId = ds.datasourceId;
 
-        // Disable
-        boolean result = repository.setDataSourceStatus(ds.datasourceId, false, "test_disable");
-        assertTrue(result);
+            // Disable
+            asserter.assertThat(() -> Panache.withTransaction(() -> 
+                repository.setDataSourceStatus(datasourceId, false, "test_disable")
+            ), result -> {
+                assertTrue(result);
+            });
 
-        DataSource updated = repository.findByDatasourceId(ds.datasourceId);
-        assertFalse(updated.active);
-        assertEquals("test_disable", updated.statusReason);
+            // Verify disabled
+            asserter.assertThat(() -> Panache.withSession(() -> 
+                repository.findByDatasourceId(datasourceId)
+            ), updated -> {
+                assertFalse(updated.active);
+                assertEquals("test_disable", updated.statusReason);
+            });
 
-        // Re-enable
-        result = repository.setDataSourceStatus(ds.datasourceId, true, null);
-        assertTrue(result);
+            // Re-enable
+            asserter.assertThat(() -> Panache.withTransaction(() -> 
+                repository.setDataSourceStatus(datasourceId, true, null)
+            ), result -> {
+                assertTrue(result);
+            });
 
-        updated = repository.findByDatasourceId(ds.datasourceId);
-        assertTrue(updated.active);
+            // Verify enabled
+            asserter.assertThat(() -> Panache.withSession(() -> 
+                repository.findByDatasourceId(datasourceId)
+            ), updated -> {
+                assertTrue(updated.active);
+            });
+        });
     }
 
     @Test
-    @Transactional
-    void testRotateApiKey() {
+    @RunOnVertxContext
+    void testRotateApiKey(UniAsserter asserter) {
         String accountId = "test-account-" + System.currentTimeMillis();
         String originalHash = "original-hash";
         String newHash = "new-hash-after-rotation";
 
-        DataSource ds = repository.createDataSource(
+        asserter.assertThat(() -> Panache.withTransaction(() -> repository.createDataSource(
             accountId, TEST_CONNECTOR_ID, "Test", originalHash, "drive", null
-        );
+        )), ds -> {
+            String datasourceId = ds.datasourceId;
 
-        boolean result = repository.rotateApiKey(ds.datasourceId, newHash);
-        assertTrue(result);
+            // Rotate key
+            asserter.assertThat(() -> Panache.withTransaction(() -> 
+                repository.rotateApiKey(datasourceId, newHash)
+            ), result -> {
+                assertTrue(result);
+            });
 
-        DataSource updated = repository.findByDatasourceId(ds.datasourceId);
-        assertEquals(newHash, updated.apiKeyHash);
-        assertNotNull(updated.lastRotatedAt);
+            // Verify rotation
+            asserter.assertThat(() -> Panache.withSession(() -> 
+                repository.findByDatasourceId(datasourceId)
+            ), updated -> {
+                assertEquals(newHash, updated.apiKeyHash);
+                assertNotNull(updated.lastRotatedAt);
+            });
+        });
     }
 
     @Test
-    @Transactional
-    void testDeleteDataSource_SoftDelete() {
+    @RunOnVertxContext
+    void testDeleteDataSource_SoftDelete(UniAsserter asserter) {
         String accountId = "test-account-" + System.currentTimeMillis();
 
-        DataSource ds = repository.createDataSource(
+        asserter.assertThat(() -> Panache.withTransaction(() -> repository.createDataSource(
             accountId, TEST_CONNECTOR_ID, "Test", "hash", "drive", null
-        );
-        assertTrue(ds.active);
+        )), ds -> {
+            assertTrue(ds.active);
+            String datasourceId = ds.datasourceId;
 
-        boolean result = repository.deleteDataSource(ds.datasourceId, "test_deletion");
-        assertTrue(result);
+            // Soft delete
+            asserter.assertThat(() -> Panache.withTransaction(() -> 
+                repository.deleteDataSource(datasourceId, "test_deletion")
+            ), result -> {
+                assertTrue(result);
+            });
 
-        DataSource updated = repository.findByDatasourceId(ds.datasourceId);
-        assertFalse(updated.active);
-        assertEquals("test_deletion", updated.statusReason);
+            // Verify soft delete
+            asserter.assertThat(() -> Panache.withSession(() -> 
+                repository.findByDatasourceId(datasourceId)
+            ), updated -> {
+                assertFalse(updated.active);
+                assertEquals("test_deletion", updated.statusReason);
+            });
+        });
     }
 
     @Test
-    @Transactional
-    void testUpdateDataSource() {
+    @RunOnVertxContext
+    void testUpdateDataSource(UniAsserter asserter) {
         String accountId = "test-account-" + System.currentTimeMillis();
 
-        DataSource ds = repository.createDataSource(
+        asserter.assertThat(() -> Panache.withTransaction(() -> repository.createDataSource(
             accountId, TEST_CONNECTOR_ID, "Original Name", "hash", "original-drive", null
-        );
+        )), ds -> {
+            String datasourceId = ds.datasourceId;
 
-        DataSource updated = repository.updateDataSource(
-            ds.datasourceId, "Updated Name", "{\"updated\":\"true\"}", "new-drive"
-        );
-
-        assertNotNull(updated);
-        assertEquals("Updated Name", updated.name);
-        assertEquals("new-drive", updated.driveName);
-        assertTrue(updated.metadata.contains("updated"));
+            // Update datasource
+            asserter.assertThat(() -> Panache.withTransaction(() -> repository.updateDataSource(
+                datasourceId, "Updated Name", "{\"updated\":\"true\"}", "new-drive"
+            )), updated -> {
+                assertNotNull(updated);
+                assertEquals("Updated Name", updated.name);
+                assertEquals("new-drive", updated.driveName);
+                assertTrue(updated.metadata.contains("updated"));
+            });
+        });
     }
 
     @Test
-    @Transactional
-    void testListConnectorTypes() {
-        List<Connector> connectors = repository.listConnectorTypes();
-
-        // Should have at least the pre-seeded connectors
-        assertTrue(connectors.size() >= 2);
-
-        // Check for S3 connector
-        assertTrue(connectors.stream().anyMatch(c -> "s3".equals(c.connectorType)));
-        // Check for file-crawler connector
-        assertTrue(connectors.stream().anyMatch(c -> "file-crawler".equals(c.connectorType)));
+    @RunOnVertxContext
+    void testListConnectorTypes(UniAsserter asserter) {
+        asserter.assertThat(() -> Panache.withSession(() -> repository.listConnectorTypes()), connectors -> {
+            // Should have at least the pre-seeded connectors
+            assertTrue(connectors.size() >= 2);
+            // Check for S3 connector
+            assertTrue(connectors.stream().anyMatch(c -> "s3".equals(c.connectorType)));
+            // Check for file-crawler connector
+            assertTrue(connectors.stream().anyMatch(c -> "file-crawler".equals(c.connectorType)));
+        });
     }
 
     @Test
-    @Transactional
-    void testFindConnectorById() {
-        Connector connector = repository.findConnectorById(TEST_CONNECTOR_ID);
-
-        assertNotNull(connector);
-        assertEquals("s3", connector.connectorType);
-        assertEquals("UNMANAGED", connector.managementType);
+    @RunOnVertxContext
+    void testFindConnectorById(UniAsserter asserter) {
+        asserter.assertThat(() -> Panache.withSession(() -> repository.findConnectorById(TEST_CONNECTOR_ID)), connector -> {
+            assertNotNull(connector);
+            assertEquals("s3", connector.connectorType);
+            assertEquals("UNMANAGED", connector.managementType);
+        });
     }
 
     @Test
-    @Transactional
-    void testFindConnectorByType() {
-        Connector connector = repository.findConnectorByType("s3");
-
-        assertNotNull(connector);
-        assertEquals(TEST_CONNECTOR_ID, connector.connectorId);
+    @RunOnVertxContext
+    void testFindConnectorByType(UniAsserter asserter) {
+        asserter.assertThat(() -> Panache.withSession(() -> repository.findConnectorByType("s3")), connector -> {
+            assertNotNull(connector);
+            assertEquals(TEST_CONNECTOR_ID, connector.connectorId);
+        });
     }
 
     @Test
-    @Transactional
-    void testCountDataSources() {
+    @RunOnVertxContext
+    void testCountDataSources(UniAsserter asserter) {
         String accountId = "test-account-" + System.currentTimeMillis();
         String secondConnectorId = "b1ffc0aa-0d1c-5f09-cc7e-7cc0ce491b22";
 
-        repository.createDataSource(accountId, TEST_CONNECTOR_ID, "DS1", "hash1", "drive1", null);
-        repository.createDataSource(accountId, secondConnectorId, "DS2", "hash2", "drive2", null);
+        // Create two datasources
+        asserter.execute(() -> Panache.withTransaction(() -> 
+            repository.createDataSource(accountId, TEST_CONNECTOR_ID, "DS1", "hash1", "drive1", null)
+                .replaceWithVoid()
+        ));
+        asserter.execute(() -> Panache.withTransaction(() -> 
+            repository.createDataSource(accountId, secondConnectorId, "DS2", "hash2", "drive2", null)
+                .replaceWithVoid()
+        ));
 
-        long count = repository.countDataSources(accountId, false);
-        assertEquals(2, count);
+        // Count active
+        asserter.assertThat(() -> Panache.withSession(() -> repository.countDataSources(accountId, false)), count -> {
+            assertEquals(2, count);
+        });
 
-        // Disable one
-        DataSource ds = repository.findByAccountAndConnector(accountId, TEST_CONNECTOR_ID);
-        repository.setDataSourceStatus(ds.datasourceId, false, "test");
+        // Disable one - find it first, then disable
+        String[] datasourceIdHolder = new String[1];
+        asserter.assertThat(() -> Panache.withSession(() -> repository.findByAccountAndConnector(accountId, TEST_CONNECTOR_ID)), ds -> {
+            datasourceIdHolder[0] = ds.datasourceId;
+        });
+        
+        // Now disable it
+        asserter.execute(() -> Panache.withTransaction(() -> 
+            repository.setDataSourceStatus(datasourceIdHolder[0], false, "test").replaceWithVoid()
+        ));
 
-        count = repository.countDataSources(accountId, false);
-        assertEquals(1, count);
+        // Count active again (should be 1)
+        asserter.assertThat(() -> Panache.withSession(() -> repository.countDataSources(accountId, false)), count -> {
+            assertEquals(1, count);
+        });
 
-        count = repository.countDataSources(accountId, true); // Include inactive
-        assertEquals(2, count);
+        // Count all (including inactive, should be 2)
+        asserter.assertThat(() -> Panache.withSession(() -> repository.countDataSources(accountId, true)), count -> {
+            assertEquals(2, count);
+        });
     }
 }
