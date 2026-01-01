@@ -3,6 +3,7 @@ package ai.pipestream.connector.service;
 import ai.pipestream.connector.entity.Connector;
 import ai.pipestream.connector.entity.ConnectorConfigSchema;
 import ai.pipestream.connector.entity.DataSource;
+import ai.pipestream.connector.intake.v1.CreateDataSourceRequest;
 import ai.pipestream.connector.intake.v1.CreateConnectorConfigSchemaRequest;
 import ai.pipestream.connector.intake.v1.CreateConnectorConfigSchemaResponse;
 import ai.pipestream.connector.intake.v1.DeleteConnectorConfigSchemaRequest;
@@ -214,6 +215,140 @@ public class ConnectorRegistrationServiceTest {
         ).await().indefinitely();
         assertEquals(false, getConnector.getConnector().getDefaultPersistPipedoc());
         assertEquals(12345, getConnector.getConnector().getDefaultMaxInlineSizeBytes());
+    }
+
+    @Test
+    void testListConnectorConfigSchemas_Pagination() throws Exception {
+        Struct schema = jsonToStruct("{\"type\":\"object\"}");
+
+        // Create multiple schemas
+        for (int i = 1; i <= 5; i++) {
+            connectorRegistrationService.createConnectorConfigSchema(
+                CreateConnectorConfigSchemaRequest.newBuilder()
+                    .setConnectorId(TEST_CONNECTOR_ID)
+                    .setSchemaVersion("v" + i)
+                    .setCustomConfigSchema(schema)
+                    .setNodeCustomConfigSchema(schema)
+                    .build()
+            ).await().indefinitely();
+        }
+
+        // Test pagination with page_size=2
+        var page1 = connectorRegistrationService.listConnectorConfigSchemas(
+            ListConnectorConfigSchemasRequest.newBuilder()
+                .setConnectorId(TEST_CONNECTOR_ID)
+                .setPageSize(2)
+                .build()
+        ).await().indefinitely();
+
+        assertEquals(5, page1.getTotalCount());
+        assertEquals(2, page1.getSchemasCount());
+        assertNotNull(page1.getNextPageToken());
+        assertFalse(page1.getNextPageToken().isEmpty());
+
+        // Get second page
+        var page2 = connectorRegistrationService.listConnectorConfigSchemas(
+            ListConnectorConfigSchemasRequest.newBuilder()
+                .setConnectorId(TEST_CONNECTOR_ID)
+                .setPageSize(2)
+                .setPageToken(page1.getNextPageToken())
+                .build()
+        ).await().indefinitely();
+
+        assertEquals(5, page2.getTotalCount());
+        assertEquals(2, page2.getSchemasCount());
+        assertNotNull(page2.getNextPageToken());
+        assertFalse(page2.getNextPageToken().isEmpty());
+
+        // Get third page (should have 1 remaining)
+        var page3 = connectorRegistrationService.listConnectorConfigSchemas(
+            ListConnectorConfigSchemasRequest.newBuilder()
+                .setConnectorId(TEST_CONNECTOR_ID)
+                .setPageSize(2)
+                .setPageToken(page2.getNextPageToken())
+                .build()
+        ).await().indefinitely();
+
+        assertEquals(5, page3.getTotalCount());
+        assertEquals(1, page3.getSchemasCount());
+        assertTrue(page3.getNextPageToken().isEmpty()); // No more pages
+    }
+
+    @Test
+    void testDeleteConnectorConfigSchema_BlockedByConnectorReference() throws Exception {
+        Struct schema = jsonToStruct("{\"type\":\"object\"}");
+
+        // Create schema
+        var create = connectorRegistrationService.createConnectorConfigSchema(
+            CreateConnectorConfigSchemaRequest.newBuilder()
+                .setConnectorId(TEST_CONNECTOR_ID)
+                .setSchemaVersion("v-delete-test")
+                .setCustomConfigSchema(schema)
+                .setNodeCustomConfigSchema(schema)
+                .build()
+        ).await().indefinitely();
+        assertTrue(create.getSuccess());
+
+        // Link schema to connector
+        var set = connectorRegistrationService.setConnectorCustomConfigSchema(
+            SetConnectorCustomConfigSchemaRequest.newBuilder()
+                .setConnectorId(TEST_CONNECTOR_ID)
+                .setSchemaId(create.getSchema().getSchemaId())
+                .build()
+        ).await().indefinitely();
+        assertTrue(set.getSuccess());
+
+        // Try to delete - should fail due to application-level FK check
+        try {
+            connectorRegistrationService.deleteConnectorConfigSchema(
+                DeleteConnectorConfigSchemaRequest.newBuilder()
+                    .setSchemaId(create.getSchema().getSchemaId())
+                    .build()
+            ).await().indefinitely();
+            fail("Expected delete to fail due to FK constraint");
+        } catch (Exception e) {
+            assertTrue(e.getMessage().contains("referenced") ||
+                      e.getMessage().contains("FAILED_PRECONDITION") ||
+                      e.getMessage().contains("Schema is still referenced"));
+        }
+    }
+
+
+    @Test
+    void testUpdateConnectorTypeDefaults_PartialUpdates() throws Exception {
+        // First set some initial values
+        var initialUpdate = connectorRegistrationService.updateConnectorTypeDefaults(
+            UpdateConnectorTypeDefaultsRequest.newBuilder()
+                .setConnectorId(TEST_CONNECTOR_ID)
+                .setDefaultPersistPipedoc(false)
+                .setDefaultMaxInlineSizeBytes(50000)
+                .setDisplayName("Initial Name")
+                .setOwner("initial-owner")
+                .build()
+        ).await().indefinitely();
+        assertTrue(initialUpdate.getSuccess());
+
+        // Now do partial update - only change display_name and add tags, leave other fields unchanged
+        var partialUpdate = connectorRegistrationService.updateConnectorTypeDefaults(
+            UpdateConnectorTypeDefaultsRequest.newBuilder()
+                .setConnectorId(TEST_CONNECTOR_ID)
+                .setDisplayName("Updated Name")
+                .addTags("new-tag")
+                .build()
+        ).await().indefinitely();
+
+        assertTrue(partialUpdate.getSuccess());
+        var connector = partialUpdate.getConnector();
+
+        // Fields that should be unchanged (not in request)
+        assertEquals(false, connector.getDefaultPersistPipedoc()); // Should remain false
+        assertEquals(50000, connector.getDefaultMaxInlineSizeBytes()); // Should remain 50000
+        assertEquals("initial-owner", connector.getOwner()); // Should remain "initial-owner"
+
+        // Fields that should be updated
+        assertEquals("Updated Name", connector.getDisplayName()); // Should be updated
+        assertEquals(1, connector.getTagsCount()); // Should have 1 tag
+        assertEquals("new-tag", connector.getTags(0)); // Should have the new tag
     }
 
     private Struct jsonToStruct(String json) throws Exception {
