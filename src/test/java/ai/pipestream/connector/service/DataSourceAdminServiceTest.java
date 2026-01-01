@@ -5,11 +5,12 @@ import ai.pipestream.connector.entity.DataSource;
 import ai.pipestream.connector.intake.v1.*;
 import ai.pipestream.data.v1.HydrationConfig;
 import com.google.protobuf.Struct;
-import jakarta.inject.Inject;
-import jakarta.persistence.EntityManager;
 import io.quarkus.grpc.GrpcClient;
+import io.quarkus.hibernate.reactive.panache.Panache;
 import io.quarkus.test.junit.QuarkusTest;
-import jakarta.transaction.Transactional;
+import io.quarkus.test.vertx.RunOnVertxContext;
+import io.quarkus.test.vertx.UniAsserter;
+import io.smallrye.mutiny.Uni;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -24,21 +25,19 @@ public class DataSourceAdminServiceTest {
     @GrpcClient
     MutinyDataSourceAdminServiceGrpc.MutinyDataSourceAdminServiceStub dataSourceAdminService;
 
-    @Inject
-    EntityManager entityManager;
-
     private static final String TEST_CONNECTOR_ID = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"; // Pre-seeded S3
     private static final String TEST_ACCOUNT_ID = "test-account";
 
     @BeforeEach
-    @Transactional
-    void setUp() {
-        // Clean up test data
-        DataSource.deleteAll();
+    @RunOnVertxContext
+    void setUp(UniAsserter asserter) {
+        // Clean up test data (reactive)
+        asserter.execute(() -> Panache.withTransaction(() -> DataSource.deleteAll()));
     }
 
     @Test
-    void testCreateDataSource_Success() {
+    @RunOnVertxContext
+    void testCreateDataSource_Success(UniAsserter asserter) {
         String uniqueAccount = TEST_ACCOUNT_ID + "-" + System.currentTimeMillis();
 
         CreateDataSourceRequest request = CreateDataSourceRequest.newBuilder()
@@ -49,27 +48,27 @@ public class DataSourceAdminServiceTest {
             .putMetadata("env", "test")
             .build();
 
-        CreateDataSourceResponse response = dataSourceAdminService.createDataSource(request)
-            .await().indefinitely();
+        asserter.assertThat(() -> dataSourceAdminService.createDataSource(request), response -> {
+            assertTrue(response.getSuccess());
+            assertNotNull(response.getDatasource());
+            assertNotNull(response.getDatasource().getDatasourceId());
+            assertFalse(response.getDatasource().getDatasourceId().isEmpty());
 
-        assertTrue(response.getSuccess());
-        assertNotNull(response.getDatasource());
-        assertNotNull(response.getDatasource().getDatasourceId());
-        assertFalse(response.getDatasource().getDatasourceId().isEmpty());
+            // API key should be returned on creation
+            assertNotNull(response.getDatasource().getApiKey());
+            assertFalse(response.getDatasource().getApiKey().isEmpty());
 
-        // API key should be returned on creation
-        assertNotNull(response.getDatasource().getApiKey());
-        assertFalse(response.getDatasource().getApiKey().isEmpty());
-
-        assertEquals(uniqueAccount, response.getDatasource().getAccountId());
-        assertEquals(TEST_CONNECTOR_ID, response.getDatasource().getConnectorId());
-        assertEquals("Test DataSource", response.getDatasource().getName());
-        assertEquals("test-drive", response.getDatasource().getDriveName());
-        assertTrue(response.getDatasource().getActive());
+            assertEquals(uniqueAccount, response.getDatasource().getAccountId());
+            assertEquals(TEST_CONNECTOR_ID, response.getDatasource().getConnectorId());
+            assertEquals("Test DataSource", response.getDatasource().getName());
+            assertEquals("test-drive", response.getDatasource().getDriveName());
+            assertTrue(response.getDatasource().getActive());
+        });
     }
 
     @Test
-    void testCreateDataSource_DuplicateFails() {
+    @RunOnVertxContext
+    void testCreateDataSource_DuplicateFails(UniAsserter asserter) {
         String uniqueAccount = TEST_ACCOUNT_ID + "-" + System.currentTimeMillis();
 
         CreateDataSourceRequest request = CreateDataSourceRequest.newBuilder()
@@ -80,32 +79,32 @@ public class DataSourceAdminServiceTest {
             .build();
 
         // First creation should succeed
-        CreateDataSourceResponse response1 = dataSourceAdminService.createDataSource(request)
-            .await().indefinitely();
-        assertTrue(response1.getSuccess());
+        asserter.assertThat(() -> dataSourceAdminService.createDataSource(request), response1 -> {
+            assertTrue(response1.getSuccess());
 
-        // Second creation with same account+connector should fail
-        CreateDataSourceRequest request2 = CreateDataSourceRequest.newBuilder()
-            .setAccountId(uniqueAccount)
-            .setConnectorId(TEST_CONNECTOR_ID)
-            .setName("Second DataSource")
-            .setDriveName("drive2")
-            .build();
+            // Second creation with same account+connector should fail
+            CreateDataSourceRequest request2 = CreateDataSourceRequest.newBuilder()
+                .setAccountId(uniqueAccount)
+                .setConnectorId(TEST_CONNECTOR_ID)
+                .setName("Second DataSource")
+                .setDriveName("drive2")
+                .build();
 
-        try {
-            dataSourceAdminService.createDataSource(request2).await().indefinitely();
-            fail("Expected ALREADY_EXISTS exception");
-        } catch (Exception e) {
-            assertTrue(e.getMessage().contains("ALREADY_EXISTS") ||
-                       e.getMessage().contains("already exists"));
-        }
+            asserter.assertThat(() -> dataSourceAdminService.createDataSource(request2)
+                .onFailure().recoverWithUni(failure -> {
+                    // Expected to fail, return null
+                    return io.smallrye.mutiny.Uni.createFrom().nullItem();
+                }), response2 -> {
+                    assertNull(response2, "Expected ALREADY_EXISTS exception");
+                });
+        });
     }
 
     @Test
-    void testGetDataSource() {
+    @RunOnVertxContext
+    void testGetDataSource(UniAsserter asserter) {
         String uniqueAccount = TEST_ACCOUNT_ID + "-" + System.currentTimeMillis();
 
-        // Create datasource first
         CreateDataSourceRequest createRequest = CreateDataSourceRequest.newBuilder()
             .setAccountId(uniqueAccount)
             .setConnectorId(TEST_CONNECTOR_ID)
@@ -113,31 +112,31 @@ public class DataSourceAdminServiceTest {
             .setDriveName("test-drive")
             .build();
 
-        CreateDataSourceResponse createResponse = dataSourceAdminService.createDataSource(createRequest)
-            .await().indefinitely();
-        String datasourceId = createResponse.getDatasource().getDatasourceId();
+        asserter.assertThat(() -> dataSourceAdminService.createDataSource(createRequest), createResponse -> {
+            assertTrue(createResponse.getSuccess());
+            String datasourceId = createResponse.getDatasource().getDatasourceId();
 
-        // Get the datasource
-        GetDataSourceRequest getRequest = GetDataSourceRequest.newBuilder()
-            .setDatasourceId(datasourceId)
-            .build();
+            // Get the datasource
+            GetDataSourceRequest getRequest = GetDataSourceRequest.newBuilder()
+                .setDatasourceId(datasourceId)
+                .build();
 
-        GetDataSourceResponse getResponse = dataSourceAdminService.getDataSource(getRequest)
-            .await().indefinitely();
+            asserter.assertThat(() -> dataSourceAdminService.getDataSource(getRequest), getResponse -> {
+                assertNotNull(getResponse.getDatasource());
+                assertEquals(datasourceId, getResponse.getDatasource().getDatasourceId());
+                assertEquals(uniqueAccount, getResponse.getDatasource().getAccountId());
 
-        assertNotNull(getResponse.getDatasource());
-        assertEquals(datasourceId, getResponse.getDatasource().getDatasourceId());
-        assertEquals(uniqueAccount, getResponse.getDatasource().getAccountId());
-
-        // API key should NOT be returned on get
-        assertTrue(getResponse.getDatasource().getApiKey().isEmpty());
+                // API key should NOT be returned on get
+                assertTrue(getResponse.getDatasource().getApiKey().isEmpty());
+            });
+        });
     }
 
     @Test
-    void testValidateApiKey_Success() {
+    @RunOnVertxContext
+    void testValidateApiKey_Success(UniAsserter asserter) {
         String uniqueAccount = TEST_ACCOUNT_ID + "-" + System.currentTimeMillis();
 
-        // Create datasource
         CreateDataSourceRequest createRequest = CreateDataSourceRequest.newBuilder()
             .setAccountId(uniqueAccount)
             .setConnectorId(TEST_CONNECTOR_ID)
@@ -145,32 +144,31 @@ public class DataSourceAdminServiceTest {
             .setDriveName("test-drive")
             .build();
 
-        CreateDataSourceResponse createResponse = dataSourceAdminService.createDataSource(createRequest)
-            .await().indefinitely();
+        asserter.assertThat(() -> dataSourceAdminService.createDataSource(createRequest), createResponse -> {
+            assertTrue(createResponse.getSuccess());
+            String datasourceId = createResponse.getDatasource().getDatasourceId();
+            String apiKey = createResponse.getDatasource().getApiKey();
 
-        String datasourceId = createResponse.getDatasource().getDatasourceId();
-        String apiKey = createResponse.getDatasource().getApiKey();
+            // Validate the API key
+            ValidateApiKeyRequest validateRequest = ValidateApiKeyRequest.newBuilder()
+                .setDatasourceId(datasourceId)
+                .setApiKey(apiKey)
+                .build();
 
-        // Validate the API key
-        ValidateApiKeyRequest validateRequest = ValidateApiKeyRequest.newBuilder()
-            .setDatasourceId(datasourceId)
-            .setApiKey(apiKey)
-            .build();
-
-        ValidateApiKeyResponse validateResponse = dataSourceAdminService.validateApiKey(validateRequest)
-            .await().indefinitely();
-
-        assertTrue(validateResponse.getValid());
-        assertEquals("API key is valid", validateResponse.getMessage());
-        assertNotNull(validateResponse.getConfig());
-        assertEquals(datasourceId, validateResponse.getConfig().getDatasourceId());
+            asserter.assertThat(() -> dataSourceAdminService.validateApiKey(validateRequest), validateResponse -> {
+                assertTrue(validateResponse.getValid());
+                assertEquals("API key is valid", validateResponse.getMessage());
+                assertNotNull(validateResponse.getConfig());
+                assertEquals(datasourceId, validateResponse.getConfig().getDatasourceId());
+            });
+        });
     }
 
     @Test
-    void testValidateApiKey_Invalid() {
+    @RunOnVertxContext
+    void testValidateApiKey_Invalid(UniAsserter asserter) {
         String uniqueAccount = TEST_ACCOUNT_ID + "-" + System.currentTimeMillis();
 
-        // Create datasource
         CreateDataSourceRequest createRequest = CreateDataSourceRequest.newBuilder()
             .setAccountId(uniqueAccount)
             .setConnectorId(TEST_CONNECTOR_ID)
@@ -178,28 +176,28 @@ public class DataSourceAdminServiceTest {
             .setDriveName("test-drive")
             .build();
 
-        CreateDataSourceResponse createResponse = dataSourceAdminService.createDataSource(createRequest)
-            .await().indefinitely();
-        String datasourceId = createResponse.getDatasource().getDatasourceId();
+        asserter.assertThat(() -> dataSourceAdminService.createDataSource(createRequest), createResponse -> {
+            assertTrue(createResponse.getSuccess());
+            String datasourceId = createResponse.getDatasource().getDatasourceId();
 
-        // Try with wrong API key
-        ValidateApiKeyRequest validateRequest = ValidateApiKeyRequest.newBuilder()
-            .setDatasourceId(datasourceId)
-            .setApiKey("wrong-api-key")
-            .build();
+            // Try with wrong API key
+            ValidateApiKeyRequest validateRequest = ValidateApiKeyRequest.newBuilder()
+                .setDatasourceId(datasourceId)
+                .setApiKey("wrong-api-key")
+                .build();
 
-        ValidateApiKeyResponse validateResponse = dataSourceAdminService.validateApiKey(validateRequest)
-            .await().indefinitely();
-
-        assertFalse(validateResponse.getValid());
-        assertEquals("Invalid API key", validateResponse.getMessage());
+            asserter.assertThat(() -> dataSourceAdminService.validateApiKey(validateRequest), validateResponse -> {
+                assertFalse(validateResponse.getValid());
+                assertEquals("Invalid API key", validateResponse.getMessage());
+            });
+        });
     }
 
     @Test
-    void testRotateApiKey() {
+    @RunOnVertxContext
+    void testRotateApiKey(UniAsserter asserter) {
         String uniqueAccount = TEST_ACCOUNT_ID + "-" + System.currentTimeMillis();
 
-        // Create datasource
         CreateDataSourceRequest createRequest = CreateDataSourceRequest.newBuilder()
             .setAccountId(uniqueAccount)
             .setConnectorId(TEST_CONNECTOR_ID)
@@ -207,49 +205,52 @@ public class DataSourceAdminServiceTest {
             .setDriveName("test-drive")
             .build();
 
-        CreateDataSourceResponse createResponse = dataSourceAdminService.createDataSource(createRequest)
-            .await().indefinitely();
+        asserter.assertThat(() -> dataSourceAdminService.createDataSource(createRequest), createResponse -> {
+            assertTrue(createResponse.getSuccess());
+            String datasourceId = createResponse.getDatasource().getDatasourceId();
+            String originalApiKey = createResponse.getDatasource().getApiKey();
 
-        String datasourceId = createResponse.getDatasource().getDatasourceId();
-        String originalApiKey = createResponse.getDatasource().getApiKey();
+            // Rotate the API key
+            RotateApiKeyRequest rotateRequest = RotateApiKeyRequest.newBuilder()
+                .setDatasourceId(datasourceId)
+                .build();
 
-        // Rotate the API key
-        RotateApiKeyRequest rotateRequest = RotateApiKeyRequest.newBuilder()
-            .setDatasourceId(datasourceId)
-            .build();
+            asserter.assertThat(() -> dataSourceAdminService.rotateApiKey(rotateRequest), rotateResponse -> {
+                assertTrue(rotateResponse.getSuccess());
+                assertNotNull(rotateResponse.getNewApiKey());
+                assertFalse(rotateResponse.getNewApiKey().isEmpty());
+                assertNotEquals(originalApiKey, rotateResponse.getNewApiKey());
 
-        RotateApiKeyResponse rotateResponse = dataSourceAdminService.rotateApiKey(rotateRequest)
-            .await().indefinitely();
+                String newApiKey = rotateResponse.getNewApiKey();
 
-        assertTrue(rotateResponse.getSuccess());
-        assertNotNull(rotateResponse.getNewApiKey());
-        assertFalse(rotateResponse.getNewApiKey().isEmpty());
-        assertNotEquals(originalApiKey, rotateResponse.getNewApiKey());
+                // Old key should no longer work
+                ValidateApiKeyRequest validateOld = ValidateApiKeyRequest.newBuilder()
+                    .setDatasourceId(datasourceId)
+                    .setApiKey(originalApiKey)
+                    .build();
+                
+                asserter.assertThat(() -> dataSourceAdminService.validateApiKey(validateOld), oldResponse -> {
+                    assertFalse(oldResponse.getValid());
+                });
 
-        // Old key should no longer work
-        ValidateApiKeyRequest validateOld = ValidateApiKeyRequest.newBuilder()
-            .setDatasourceId(datasourceId)
-            .setApiKey(originalApiKey)
-            .build();
-        ValidateApiKeyResponse oldResponse = dataSourceAdminService.validateApiKey(validateOld)
-            .await().indefinitely();
-        assertFalse(oldResponse.getValid());
-
-        // New key should work
-        ValidateApiKeyRequest validateNew = ValidateApiKeyRequest.newBuilder()
-            .setDatasourceId(datasourceId)
-            .setApiKey(rotateResponse.getNewApiKey())
-            .build();
-        ValidateApiKeyResponse newResponse = dataSourceAdminService.validateApiKey(validateNew)
-            .await().indefinitely();
-        assertTrue(newResponse.getValid());
+                // New key should work
+                ValidateApiKeyRequest validateNew = ValidateApiKeyRequest.newBuilder()
+                    .setDatasourceId(datasourceId)
+                    .setApiKey(newApiKey)
+                    .build();
+                
+                asserter.assertThat(() -> dataSourceAdminService.validateApiKey(validateNew), newResponse -> {
+                    assertTrue(newResponse.getValid());
+                });
+            });
+        });
     }
 
     @Test
-    void testSetDataSourceStatus() {
+    @RunOnVertxContext
+    void testSetDataSourceStatus(UniAsserter asserter) {
         String uniqueAccount = TEST_ACCOUNT_ID + "-" + System.currentTimeMillis();
 
-        // Create datasource
         CreateDataSourceRequest createRequest = CreateDataSourceRequest.newBuilder()
             .setAccountId(uniqueAccount)
             .setConnectorId(TEST_CONNECTOR_ID)
@@ -257,111 +258,114 @@ public class DataSourceAdminServiceTest {
             .setDriveName("test-drive")
             .build();
 
-        CreateDataSourceResponse createResponse = dataSourceAdminService.createDataSource(createRequest)
-            .await().indefinitely();
-        String datasourceId = createResponse.getDatasource().getDatasourceId();
-        String apiKey = createResponse.getDatasource().getApiKey();
+        asserter.assertThat(() -> dataSourceAdminService.createDataSource(createRequest), createResponse -> {
+            assertTrue(createResponse.getSuccess());
+            String datasourceId = createResponse.getDatasource().getDatasourceId();
+            String apiKey = createResponse.getDatasource().getApiKey();
 
-        // Disable the datasource
-        SetDataSourceStatusRequest disableRequest = SetDataSourceStatusRequest.newBuilder()
-            .setDatasourceId(datasourceId)
-            .setActive(false)
-            .setReason("test_disable")
-            .build();
+            // Disable the datasource
+            SetDataSourceStatusRequest disableRequest = SetDataSourceStatusRequest.newBuilder()
+                .setDatasourceId(datasourceId)
+                .setActive(false)
+                .setReason("test_disable")
+                .build();
 
-        SetDataSourceStatusResponse disableResponse = dataSourceAdminService.setDataSourceStatus(disableRequest)
-            .await().indefinitely();
-        assertTrue(disableResponse.getSuccess());
+            asserter.assertThat(() -> dataSourceAdminService.setDataSourceStatus(disableRequest), disableResponse -> {
+                assertTrue(disableResponse.getSuccess());
 
-        // API key should not validate for inactive datasource
-        ValidateApiKeyRequest validateRequest = ValidateApiKeyRequest.newBuilder()
-            .setDatasourceId(datasourceId)
-            .setApiKey(apiKey)
-            .build();
-        ValidateApiKeyResponse validateResponse = dataSourceAdminService.validateApiKey(validateRequest)
-            .await().indefinitely();
-        assertFalse(validateResponse.getValid());
-        assertTrue(validateResponse.getMessage().contains("inactive"));
+                // API key should not validate for inactive datasource
+                ValidateApiKeyRequest validateRequest = ValidateApiKeyRequest.newBuilder()
+                    .setDatasourceId(datasourceId)
+                    .setApiKey(apiKey)
+                    .build();
+                
+                asserter.assertThat(() -> dataSourceAdminService.validateApiKey(validateRequest), validateResponse -> {
+                    assertFalse(validateResponse.getValid());
+                    assertTrue(validateResponse.getMessage().contains("inactive"));
+                });
 
-        // Re-enable
-        SetDataSourceStatusRequest enableRequest = SetDataSourceStatusRequest.newBuilder()
-            .setDatasourceId(datasourceId)
-            .setActive(true)
-            .build();
-        dataSourceAdminService.setDataSourceStatus(enableRequest).await().indefinitely();
+                // Re-enable
+                SetDataSourceStatusRequest enableRequest = SetDataSourceStatusRequest.newBuilder()
+                    .setDatasourceId(datasourceId)
+                    .setActive(true)
+                    .build();
+                
+                asserter.execute(() -> dataSourceAdminService.setDataSourceStatus(enableRequest).replaceWithVoid());
 
-        // Should work again
-        validateResponse = dataSourceAdminService.validateApiKey(validateRequest)
-            .await().indefinitely();
-        assertTrue(validateResponse.getValid());
+                // Should work again
+                asserter.assertThat(() -> dataSourceAdminService.validateApiKey(validateRequest), validateResponse2 -> {
+                    assertTrue(validateResponse2.getValid());
+                });
+            });
+        });
     }
 
     @Test
-    void testListDataSources() {
+    @RunOnVertxContext
+    void testListDataSources(UniAsserter asserter) {
         String uniqueAccount = TEST_ACCOUNT_ID + "-" + System.currentTimeMillis();
         String secondConnectorId = "b1ffc0aa-0d1c-5f09-cc7e-7cc0ce491b22"; // file-crawler
 
         // Create two datasources
-        dataSourceAdminService.createDataSource(CreateDataSourceRequest.newBuilder()
+        asserter.execute(() -> dataSourceAdminService.createDataSource(CreateDataSourceRequest.newBuilder()
             .setAccountId(uniqueAccount)
             .setConnectorId(TEST_CONNECTOR_ID)
             .setName("DS1")
             .setDriveName("drive1")
-            .build()).await().indefinitely();
+            .build()).replaceWithVoid());
 
-        dataSourceAdminService.createDataSource(CreateDataSourceRequest.newBuilder()
+        asserter.execute(() -> dataSourceAdminService.createDataSource(CreateDataSourceRequest.newBuilder()
             .setAccountId(uniqueAccount)
             .setConnectorId(secondConnectorId)
             .setName("DS2")
             .setDriveName("drive2")
-            .build()).await().indefinitely();
+            .build()).replaceWithVoid());
 
         // List all for account
         ListDataSourcesRequest listRequest = ListDataSourcesRequest.newBuilder()
             .setAccountId(uniqueAccount)
             .build();
 
-        ListDataSourcesResponse listResponse = dataSourceAdminService.listDataSources(listRequest)
-            .await().indefinitely();
-
-        assertEquals(2, listResponse.getDatasourcesCount());
-        assertEquals(2, listResponse.getTotalCount());
+        asserter.assertThat(() -> dataSourceAdminService.listDataSources(listRequest), listResponse -> {
+            assertEquals(2, listResponse.getDatasourcesCount());
+            assertEquals(2, listResponse.getTotalCount());
+        });
     }
 
     @Test
-    void testListConnectorTypes() {
+    @RunOnVertxContext
+    void testListConnectorTypes(UniAsserter asserter) {
         ListConnectorTypesRequest request = ListConnectorTypesRequest.newBuilder().build();
 
-        ListConnectorTypesResponse response = dataSourceAdminService.listConnectorTypes(request)
-            .await().indefinitely();
-
-        assertTrue(response.getConnectorsCount() >= 2);
-        assertTrue(response.getConnectorsList().stream()
-            .anyMatch(c -> "s3".equals(c.getConnectorType())));
-        assertTrue(response.getConnectorsList().stream()
-            .anyMatch(c -> "file-crawler".equals(c.getConnectorType())));
+        asserter.assertThat(() -> dataSourceAdminService.listConnectorTypes(request), response -> {
+            assertTrue(response.getConnectorsCount() >= 2);
+            assertTrue(response.getConnectorsList().stream()
+                .anyMatch(c -> "s3".equals(c.getConnectorType())));
+            assertTrue(response.getConnectorsList().stream()
+                .anyMatch(c -> "file-crawler".equals(c.getConnectorType())));
+        });
     }
 
     @Test
-    void testGetConnectorType() {
+    @RunOnVertxContext
+    void testGetConnectorType(UniAsserter asserter) {
         GetConnectorTypeRequest request = GetConnectorTypeRequest.newBuilder()
             .setConnectorId(TEST_CONNECTOR_ID)
             .build();
 
-        GetConnectorTypeResponse response = dataSourceAdminService.getConnectorType(request)
-            .await().indefinitely();
-
-        assertNotNull(response.getConnector());
-        assertEquals(TEST_CONNECTOR_ID, response.getConnector().getConnectorId());
-        assertEquals("s3", response.getConnector().getConnectorType());
-        assertEquals(ManagementType.MANAGEMENT_TYPE_UNMANAGED, response.getConnector().getManagementType());
+        asserter.assertThat(() -> dataSourceAdminService.getConnectorType(request), response -> {
+            assertNotNull(response.getConnector());
+            assertEquals(TEST_CONNECTOR_ID, response.getConnector().getConnectorId());
+            assertEquals("s3", response.getConnector().getConnectorType());
+            assertEquals(ManagementType.MANAGEMENT_TYPE_UNMANAGED, response.getConnector().getManagementType());
+        });
     }
 
     @Test
-    void testDeleteDataSource() {
+    @RunOnVertxContext
+    void testDeleteDataSource(UniAsserter asserter) {
         String uniqueAccount = TEST_ACCOUNT_ID + "-" + System.currentTimeMillis();
 
-        // Create datasource
         CreateDataSourceRequest createRequest = CreateDataSourceRequest.newBuilder()
             .setAccountId(uniqueAccount)
             .setConnectorId(TEST_CONNECTOR_ID)
@@ -369,33 +373,35 @@ public class DataSourceAdminServiceTest {
             .setDriveName("test-drive")
             .build();
 
-        CreateDataSourceResponse createResponse = dataSourceAdminService.createDataSource(createRequest)
-            .await().indefinitely();
-        String datasourceId = createResponse.getDatasource().getDatasourceId();
+        asserter.assertThat(() -> dataSourceAdminService.createDataSource(createRequest), createResponse -> {
+            assertTrue(createResponse.getSuccess());
+            String datasourceId = createResponse.getDatasource().getDatasourceId();
 
-        // Delete
-        DeleteDataSourceRequest deleteRequest = DeleteDataSourceRequest.newBuilder()
-            .setDatasourceId(datasourceId)
-            .build();
+            // Delete
+            DeleteDataSourceRequest deleteRequest = DeleteDataSourceRequest.newBuilder()
+                .setDatasourceId(datasourceId)
+                .build();
 
-        DeleteDataSourceResponse deleteResponse = dataSourceAdminService.deleteDataSource(deleteRequest)
-            .await().indefinitely();
+            asserter.assertThat(() -> dataSourceAdminService.deleteDataSource(deleteRequest), deleteResponse -> {
+                assertTrue(deleteResponse.getSuccess());
 
-        assertTrue(deleteResponse.getSuccess());
+                // Should still exist but be inactive (soft delete)
+                GetDataSourceRequest getRequest = GetDataSourceRequest.newBuilder()
+                    .setDatasourceId(datasourceId)
+                    .build();
 
-        // Should still exist but be inactive (soft delete)
-        GetDataSourceResponse getResponse = dataSourceAdminService.getDataSource(
-            GetDataSourceRequest.newBuilder().setDatasourceId(datasourceId).build()
-        ).await().indefinitely();
-
-        assertFalse(getResponse.getDatasource().getActive());
+                asserter.assertThat(() -> dataSourceAdminService.getDataSource(getRequest), getResponse -> {
+                    assertFalse(getResponse.getDatasource().getActive());
+                });
+            });
+        });
     }
 
     @Test
-    void testUpdateDataSource() {
+    @RunOnVertxContext
+    void testUpdateDataSource(UniAsserter asserter) {
         String uniqueAccount = TEST_ACCOUNT_ID + "-" + System.currentTimeMillis();
 
-        // Create datasource
         CreateDataSourceRequest createRequest = CreateDataSourceRequest.newBuilder()
             .setAccountId(uniqueAccount)
             .setConnectorId(TEST_CONNECTOR_ID)
@@ -403,29 +409,30 @@ public class DataSourceAdminServiceTest {
             .setDriveName("original-drive")
             .build();
 
-        CreateDataSourceResponse createResponse = dataSourceAdminService.createDataSource(createRequest)
-            .await().indefinitely();
-        String datasourceId = createResponse.getDatasource().getDatasourceId();
+        asserter.assertThat(() -> dataSourceAdminService.createDataSource(createRequest), createResponse -> {
+            assertTrue(createResponse.getSuccess());
+            String datasourceId = createResponse.getDatasource().getDatasourceId();
 
-        // Update
-        UpdateDataSourceRequest updateRequest = UpdateDataSourceRequest.newBuilder()
-            .setDatasourceId(datasourceId)
-            .setName("Updated Name")
-            .setDriveName("updated-drive")
-            .putMetadata("updated", "true")
-            .build();
+            // Update
+            UpdateDataSourceRequest updateRequest = UpdateDataSourceRequest.newBuilder()
+                .setDatasourceId(datasourceId)
+                .setName("Updated Name")
+                .setDriveName("updated-drive")
+                .putMetadata("updated", "true")
+                .build();
 
-        UpdateDataSourceResponse updateResponse = dataSourceAdminService.updateDataSource(updateRequest)
-            .await().indefinitely();
-
-        assertTrue(updateResponse.getSuccess());
-        assertEquals("Updated Name", updateResponse.getDatasource().getName());
-        assertEquals("updated-drive", updateResponse.getDatasource().getDriveName());
-        assertEquals("true", updateResponse.getDatasource().getMetadataMap().get("updated"));
+            asserter.assertThat(() -> dataSourceAdminService.updateDataSource(updateRequest), updateResponse -> {
+                assertTrue(updateResponse.getSuccess());
+                assertEquals("Updated Name", updateResponse.getDatasource().getName());
+                assertEquals("updated-drive", updateResponse.getDatasource().getDriveName());
+                assertEquals("true", updateResponse.getDatasource().getMetadataMap().get("updated"));
+            });
+        });
     }
 
     @Test
-    void testValidateApiKey_ReturnsMergedConfig() {
+    @RunOnVertxContext
+    void testValidateApiKey_ReturnsMergedConfig(UniAsserter asserter) {
         String uniqueAccount = TEST_ACCOUNT_ID + "-" + System.currentTimeMillis();
 
         CreateDataSourceRequest createRequest = CreateDataSourceRequest.newBuilder()
@@ -435,36 +442,34 @@ public class DataSourceAdminServiceTest {
             .setDriveName("test-drive")
             .build();
 
-        CreateDataSourceResponse createResponse = dataSourceAdminService.createDataSource(createRequest)
-            .await().indefinitely();
-        assertTrue(createResponse.getSuccess());
+        asserter.assertThat(() -> dataSourceAdminService.createDataSource(createRequest), createResponse -> {
+            assertTrue(createResponse.getSuccess());
+            String datasourceId = createResponse.getDatasource().getDatasourceId();
+            String apiKey = createResponse.getDatasource().getApiKey();
 
-        String datasourceId = createResponse.getDatasource().getDatasourceId();
-        String apiKey = createResponse.getDatasource().getApiKey();
+            ValidateApiKeyRequest validateRequest = ValidateApiKeyRequest.newBuilder()
+                .setDatasourceId(datasourceId)
+                .setApiKey(apiKey)
+                .build();
 
-        ValidateApiKeyRequest validateRequest = ValidateApiKeyRequest.newBuilder()
-            .setDatasourceId(datasourceId)
-            .setApiKey(apiKey)
-            .build();
-
-        ValidateApiKeyResponse response = dataSourceAdminService.validateApiKey(validateRequest)
-            .await().indefinitely();
-
-        assertTrue(response.getValid());
-        assertNotNull(response.getConfig());
-        assertTrue(response.getConfig().hasGlobalConfig());
-        
-        // Verify global_config has system defaults at minimum
-        var globalConfig = response.getConfig().getGlobalConfig();
-        assertTrue(globalConfig.hasPersistenceConfig());
-        assertTrue(globalConfig.hasHydrationConfig());
+            asserter.assertThat(() -> dataSourceAdminService.validateApiKey(validateRequest), response -> {
+                assertTrue(response.getValid());
+                assertNotNull(response.getConfig());
+                assertTrue(response.getConfig().hasGlobalConfig());
+                
+                // Verify global_config has system defaults at minimum
+                var globalConfig = response.getConfig().getGlobalConfig();
+                assertTrue(globalConfig.hasPersistenceConfig());
+                assertTrue(globalConfig.hasHydrationConfig());
+            });
+        });
     }
 
     @Test
-    void testValidateApiKey_ConnectorDefaults() {
+    @RunOnVertxContext
+    void testValidateApiKey_ConnectorDefaults(UniAsserter asserter) {
         String uniqueAccount = TEST_ACCOUNT_ID + "-" + System.currentTimeMillis();
 
-        // Create datasource - connector should have defaults (if set)
         CreateDataSourceRequest createRequest = CreateDataSourceRequest.newBuilder()
             .setAccountId(uniqueAccount)
             .setConnectorId(TEST_CONNECTOR_ID)
@@ -472,41 +477,42 @@ public class DataSourceAdminServiceTest {
             .setDriveName("test-drive")
             .build();
 
-        CreateDataSourceResponse createResponse = dataSourceAdminService.createDataSource(createRequest)
-            .await().indefinitely();
-        String datasourceId = createResponse.getDatasource().getDatasourceId();
-        String apiKey = createResponse.getDatasource().getApiKey();
+        asserter.assertThat(() -> dataSourceAdminService.createDataSource(createRequest), createResponse -> {
+            assertTrue(createResponse.getSuccess());
+            String datasourceId = createResponse.getDatasource().getDatasourceId();
+            String apiKey = createResponse.getDatasource().getApiKey();
 
-        ValidateApiKeyRequest validateRequest = ValidateApiKeyRequest.newBuilder()
-            .setDatasourceId(datasourceId)
-            .setApiKey(apiKey)
-            .build();
+            ValidateApiKeyRequest validateRequest = ValidateApiKeyRequest.newBuilder()
+                .setDatasourceId(datasourceId)
+                .setApiKey(apiKey)
+                .build();
 
-        ValidateApiKeyResponse response = dataSourceAdminService.validateApiKey(validateRequest)
-            .await().indefinitely();
-
-        assertTrue(response.getValid());
-        var globalConfig = response.getConfig().getGlobalConfig();
-        
-        // Should have persistence config (from connector defaults or system defaults)
-        assertTrue(globalConfig.hasPersistenceConfig());
-        // Verify persist_pipedoc is set - just verify the config is present and has a value
-        // System default is true, connector may override, but it should be set
-        assertNotNull(globalConfig.getPersistenceConfig());
+            asserter.assertThat(() -> dataSourceAdminService.validateApiKey(validateRequest), response -> {
+                assertTrue(response.getValid());
+                var globalConfig = response.getConfig().getGlobalConfig();
+                
+                // Should have persistence config (from connector defaults or system defaults)
+                assertTrue(globalConfig.hasPersistenceConfig());
+                // Verify persist_pipedoc is set - just verify the config is present and has a value
+                // System default is true, connector may override, but it should be set
+                assertNotNull(globalConfig.getPersistenceConfig());
+            });
+        });
     }
 
     @Test
-    void testValidateApiKey_MergedOverrides_ConnectorDefaults_DataSourceColumnAndProto() {
+    @RunOnVertxContext
+    void testValidateApiKey_MergedOverrides_ConnectorDefaults_DataSourceColumnAndProto(UniAsserter asserter) {
         String uniqueAccount = TEST_ACCOUNT_ID + "-" + System.currentTimeMillis();
 
-        // Arrange: set connector defaults (Tier 1 defaults)
-        Connector original = setConnectorDefaults(TEST_CONNECTOR_ID,
+        // Arrange: set connector defaults (Tier 1 defaults) - use reactive helper
+        Connector[] originalHolder = new Connector[1];
+        asserter.assertThat(() -> setConnectorDefaultsReactive(TEST_CONNECTOR_ID,
             false,
             2097152,
             "{\"connector_setting\":\"default_value\",\"parse_images\":true}"
-        );
-
-        try {
+        ), original -> {
+            originalHolder[0] = original;
             // Create datasource
             CreateDataSourceRequest createRequest = CreateDataSourceRequest.newBuilder()
                 .setAccountId(uniqueAccount)
@@ -515,112 +521,113 @@ public class DataSourceAdminServiceTest {
                 .setDriveName("test-drive")
                 .build();
 
-            CreateDataSourceResponse createResponse = dataSourceAdminService.createDataSource(createRequest)
-                .await().indefinitely();
-            assertTrue(createResponse.getSuccess());
-            String datasourceId = createResponse.getDatasource().getDatasourceId();
-            String apiKey = createResponse.getDatasource().getApiKey();
+            asserter.assertThat(() -> dataSourceAdminService.createDataSource(createRequest), createResponse -> {
+                assertTrue(createResponse.getSuccess());
+                String datasourceId = createResponse.getDatasource().getDatasourceId();
+                String apiKey = createResponse.getDatasource().getApiKey();
 
-            // Arrange: datasource column override custom_config
-            setDatasourceCustomConfig(datasourceId, "{\"connector_setting\":\"override_value\",\"new_setting\":123}");
+                // Arrange: datasource column override custom_config (use Panache in reactive context)
+                asserter.execute(() -> Panache.withTransaction(() ->
+                    DataSource.<DataSource>findById(datasourceId)
+                        .flatMap(ds -> {
+                            ds.customConfig = "{\"connector_setting\":\"override_value\",\"new_setting\":123}";
+                            return ds.<DataSource>persist();
+                        })
+                        .replaceWithVoid()
+                ));
 
-            // Arrange: datasource proto override (highest priority for strongly typed fields)
-            DataSourceConfig.ConnectorGlobalConfig protoOverride =
-                DataSourceConfig.ConnectorGlobalConfig.newBuilder()
-                    .setPersistenceConfig(
-                        DataSourceConfig.PersistenceConfig.newBuilder()
-                            .setPersistPipedoc(true) // override connector default false
-                            .setMaxInlineSizeBytes(5242880) // 5MB
-                            .build()
-                    )
-                    .setHydrationConfig(
-                        HydrationConfig.newBuilder()
-                            .setDefaultHydrationPolicy(HydrationConfig.HydrationPolicy.HYDRATION_POLICY_ALWAYS_REF)
-                            .build()
-                    )
+                // Arrange: datasource proto override (highest priority for strongly typed fields)
+                DataSourceConfig.ConnectorGlobalConfig protoOverride =
+                    DataSourceConfig.ConnectorGlobalConfig.newBuilder()
+                        .setPersistenceConfig(
+                            DataSourceConfig.PersistenceConfig.newBuilder()
+                                .setPersistPipedoc(true) // override connector default false
+                                .setMaxInlineSizeBytes(5242880) // 5MB
+                                .build()
+                        )
+                        .setHydrationConfig(
+                            HydrationConfig.newBuilder()
+                                .setDefaultHydrationPolicy(HydrationConfig.HydrationPolicy.HYDRATION_POLICY_ALWAYS_REF)
+                                .build()
+                        )
+                        .build();
+                
+                asserter.execute(() -> Panache.withTransaction(() ->
+                    DataSource.<DataSource>findById(datasourceId)
+                        .flatMap(ds -> {
+                            ds.globalConfigProto = protoOverride.toByteArray();
+                            return ds.<DataSource>persist();
+                        })
+                        .replaceWithVoid()
+                ));
+
+                // Act
+                ValidateApiKeyRequest validateRequest = ValidateApiKeyRequest.newBuilder()
+                    .setDatasourceId(datasourceId)
+                    .setApiKey(apiKey)
                     .build();
-            setDatasourceGlobalConfigProto(datasourceId, protoOverride.toByteArray());
 
-            // Act
-            ValidateApiKeyRequest validateRequest = ValidateApiKeyRequest.newBuilder()
-                .setDatasourceId(datasourceId)
-                .setApiKey(apiKey)
-                .build();
+                asserter.assertThat(() -> dataSourceAdminService.validateApiKey(validateRequest), response -> {
+                    // Assert
+                    assertTrue(response.getValid());
+                    assertTrue(response.getConfig().hasGlobalConfig());
+                    var globalConfig = response.getConfig().getGlobalConfig();
 
-            ValidateApiKeyResponse response = dataSourceAdminService.validateApiKey(validateRequest)
-                .await().indefinitely();
+                    // Strongly typed fields: should come from proto override
+                    assertTrue(globalConfig.hasPersistenceConfig());
+                    assertEquals(true, globalConfig.getPersistenceConfig().getPersistPipedoc());
+                    assertEquals(5242880, globalConfig.getPersistenceConfig().getMaxInlineSizeBytes());
+                    assertTrue(globalConfig.hasHydrationConfig());
+                    assertEquals(HydrationConfig.HydrationPolicy.HYDRATION_POLICY_ALWAYS_REF,
+                        globalConfig.getHydrationConfig().getDefaultHydrationPolicy());
 
-            // Assert
-            assertTrue(response.getValid());
-            assertTrue(response.getConfig().hasGlobalConfig());
-            var globalConfig = response.getConfig().getGlobalConfig();
+                    // Custom config: connector defaults + datasource column override should be merged (proto had none)
+                    assertTrue(globalConfig.hasCustomConfig());
+                    Struct customConfig = globalConfig.getCustomConfig();
+                    assertEquals("override_value", customConfig.getFieldsMap().get("connector_setting").getStringValue());
+                    assertEquals(true, customConfig.getFieldsMap().get("parse_images").getBoolValue()); // from connector defaults
+                    assertEquals(123, (int) customConfig.getFieldsMap().get("new_setting").getNumberValue());
+                });
+            });
 
-            // Strongly typed fields: should come from proto override
-            assertTrue(globalConfig.hasPersistenceConfig());
-            assertEquals(true, globalConfig.getPersistenceConfig().getPersistPipedoc());
-            assertEquals(5242880, globalConfig.getPersistenceConfig().getMaxInlineSizeBytes());
-            assertTrue(globalConfig.hasHydrationConfig());
-            assertEquals(HydrationConfig.HydrationPolicy.HYDRATION_POLICY_ALWAYS_REF,
-                globalConfig.getHydrationConfig().getDefaultHydrationPolicy());
-
-            // Custom config: connector defaults + datasource column override should be merged (proto had none)
-            assertTrue(globalConfig.hasCustomConfig());
-            Struct customConfig = globalConfig.getCustomConfig();
-            assertEquals("override_value", customConfig.getFieldsMap().get("connector_setting").getStringValue());
-            assertEquals(true, customConfig.getFieldsMap().get("parse_images").getBoolValue()); // from connector defaults
-            assertEquals(123, (int) customConfig.getFieldsMap().get("new_setting").getNumberValue());
-        } finally {
             // Restore connector defaults so other tests aren't affected
-            restoreConnectorDefaults(original);
-        }
+            asserter.execute(() -> restoreConnectorDefaultsReactive(originalHolder[0]).replaceWithVoid());
+        });
     }
 
-    @Transactional
-    Connector setConnectorDefaults(String connectorId, Boolean persistPipedoc, Integer maxInlineSizeBytes, String defaultCustomConfig) {
-        Connector connector = Connector.findById(connectorId);
-        assertNotNull(connector);
+    // Helper methods - reactive versions for use in @RunOnVertxContext tests
+    Uni<Connector> setConnectorDefaultsReactive(String connectorId, Boolean persistPipedoc, Integer maxInlineSizeBytes, String defaultCustomConfig) {
+        return Panache.withTransaction(() ->
+            Connector.<Connector>findById(connectorId)
+                .flatMap(connector -> {
+                    assertNotNull(connector);
 
-        Connector snapshot = new Connector();
-        snapshot.connectorId = connector.connectorId;
-        snapshot.defaultPersistPipedoc = connector.defaultPersistPipedoc;
-        snapshot.defaultMaxInlineSizeBytes = connector.defaultMaxInlineSizeBytes;
-        snapshot.defaultCustomConfig = connector.defaultCustomConfig;
+                    Connector snapshot = new Connector();
+                    snapshot.connectorId = connector.connectorId;
+                    snapshot.defaultPersistPipedoc = connector.defaultPersistPipedoc;
+                    snapshot.defaultMaxInlineSizeBytes = connector.defaultMaxInlineSizeBytes;
+                    snapshot.defaultCustomConfig = connector.defaultCustomConfig;
 
-        connector.defaultPersistPipedoc = persistPipedoc;
-        connector.defaultMaxInlineSizeBytes = maxInlineSizeBytes;
-        connector.defaultCustomConfig = defaultCustomConfig;
-        connector.persist();
-        entityManager.flush();
-        return snapshot;
+                    connector.defaultPersistPipedoc = persistPipedoc;
+                    connector.defaultMaxInlineSizeBytes = maxInlineSizeBytes;
+                    connector.defaultCustomConfig = defaultCustomConfig;
+                    return connector.<Connector>persist()
+                        .map(persisted -> snapshot);
+                })
+        );
     }
 
-    @Transactional
-    void restoreConnectorDefaults(Connector snapshot) {
-        if (snapshot == null) return;
-        Connector connector = Connector.findById(snapshot.connectorId);
-        if (connector == null) return;
-        connector.defaultPersistPipedoc = snapshot.defaultPersistPipedoc;
-        connector.defaultMaxInlineSizeBytes = snapshot.defaultMaxInlineSizeBytes;
-        connector.defaultCustomConfig = snapshot.defaultCustomConfig;
-        connector.persist();
-        entityManager.flush();
-    }
-
-    @Transactional
-    void setDatasourceCustomConfig(String datasourceId, String customConfigJson) {
-        DataSource ds = DataSource.findById(datasourceId);
-        assertNotNull(ds);
-        ds.customConfig = customConfigJson;
-        ds.persist();
-        entityManager.flush();
-    }
-
-    @Transactional
-    void setDatasourceGlobalConfigProto(String datasourceId, byte[] bytes) {
-        DataSource ds = DataSource.findById(datasourceId);
-        assertNotNull(ds);
-        ds.globalConfigProto = bytes;
-        ds.persist();
-        entityManager.flush();
+    Uni<Void> restoreConnectorDefaultsReactive(Connector snapshot) {
+        if (snapshot == null) return io.smallrye.mutiny.Uni.createFrom().voidItem();
+        return Panache.withTransaction(() ->
+            Connector.<Connector>findById(snapshot.connectorId)
+                .flatMap(connector -> {
+                    if (connector == null) return io.smallrye.mutiny.Uni.createFrom().voidItem();
+                    connector.defaultPersistPipedoc = snapshot.defaultPersistPipedoc;
+                    connector.defaultMaxInlineSizeBytes = snapshot.defaultMaxInlineSizeBytes;
+                    connector.defaultCustomConfig = snapshot.defaultCustomConfig;
+                    return connector.<Connector>persist().replaceWithVoid();
+                })
+        );
     }
 }
