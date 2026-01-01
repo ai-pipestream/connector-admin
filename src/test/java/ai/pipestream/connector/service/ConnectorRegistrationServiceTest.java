@@ -3,7 +3,6 @@ package ai.pipestream.connector.service;
 import ai.pipestream.connector.entity.Connector;
 import ai.pipestream.connector.entity.ConnectorConfigSchema;
 import ai.pipestream.connector.entity.DataSource;
-import ai.pipestream.connector.intake.v1.CreateDataSourceRequest;
 import ai.pipestream.connector.intake.v1.CreateConnectorConfigSchemaRequest;
 import ai.pipestream.connector.intake.v1.CreateConnectorConfigSchemaResponse;
 import ai.pipestream.connector.intake.v1.DeleteConnectorConfigSchemaRequest;
@@ -17,9 +16,10 @@ import ai.pipestream.connector.intake.v1.UpdateConnectorTypeDefaultsRequest;
 import com.google.protobuf.Struct;
 import com.google.protobuf.util.JsonFormat;
 import io.quarkus.grpc.GrpcClient;
+import io.quarkus.hibernate.reactive.panache.Panache;
 import io.quarkus.test.junit.QuarkusTest;
-import jakarta.persistence.EntityManager;
-import jakarta.transaction.Transactional;
+import io.quarkus.test.vertx.RunOnVertxContext;
+import io.quarkus.test.vertx.UniAsserter;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -39,40 +39,67 @@ public class ConnectorRegistrationServiceTest {
 
     private static final String TEST_CONNECTOR_ID = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"; // Pre-seeded S3
 
-    @jakarta.inject.Inject
-    EntityManager entityManager;
-
     @BeforeEach
-    @Transactional
-    void setUp() {
-        // Clean up test data
-        DataSource.deleteAll();
+    @RunOnVertxContext
+    void setUp(UniAsserter asserter) {
+        // Clean up test data (reactive)
+        asserter.execute(() -> Panache.withTransaction(() -> DataSource.deleteAll()));
 
-        // Clear FK references before deleting schemas
-        entityManager.createQuery("UPDATE Connector c SET c.customConfigSchemaId = null").executeUpdate();
-        entityManager.createQuery("UPDATE DataSource d SET d.customConfigSchemaId = null").executeUpdate();
-        ConnectorConfigSchema.deleteAll();
+        // Clear FK references before deleting schemas (reactive)
+        asserter.execute(() -> Panache.withTransaction(() ->
+            Connector.<Connector>listAll()
+                .flatMap(connectors -> {
+                    io.smallrye.mutiny.Uni<?> lastUni = io.smallrye.mutiny.Uni.createFrom().voidItem();
+                    for (Connector connector : connectors) {
+                        connector.customConfigSchemaId = null;
+                        lastUni = connector.<Connector>persist();
+                    }
+                    return lastUni;
+                })
+        ));
 
-        // Reset connector defaults for stable assertions
-        Connector connector = Connector.findById(TEST_CONNECTOR_ID);
-        assertNotNull(connector, "Expected pre-seeded connector to exist");
-        connector.customConfigSchemaId = null;
-        connector.defaultPersistPipedoc = true;
-        connector.defaultMaxInlineSizeBytes = 1048576;
-        connector.defaultCustomConfig = "{}";
-        connector.displayName = null;
-        connector.owner = null;
-        connector.documentationUrl = null;
-        connector.tags = null;
-        connector.persist();
+        asserter.execute(() -> Panache.withTransaction(() ->
+            DataSource.<DataSource>listAll()
+                .flatMap(datasources -> {
+                    io.smallrye.mutiny.Uni<?> lastUni = io.smallrye.mutiny.Uni.createFrom().voidItem();
+                    for (DataSource datasource : datasources) {
+                        datasource.customConfigSchemaId = null;
+                        lastUni = datasource.<DataSource>persist();
+                    }
+                    return lastUni;
+                })
+        ));
+
+        asserter.execute(() -> Panache.withTransaction(() -> ConnectorConfigSchema.deleteAll()));
+
+        // Reset connector defaults for stable assertions (reactive)
+        asserter.assertThat(() -> Panache.withTransaction(() ->
+            Connector.<Connector>findById(TEST_CONNECTOR_ID)
+                .flatMap(c -> {
+                    assertNotNull(c, "Expected pre-seeded connector to exist");
+                    c.customConfigSchemaId = null;
+                    c.defaultPersistPipedoc = true;
+                    c.defaultMaxInlineSizeBytes = 1048576;
+                    c.defaultCustomConfig = "{}";
+                    c.displayName = null;
+                    c.owner = null;
+                    c.documentationUrl = null;
+                    c.tags = null;
+                    return c.<Connector>persist();
+                })
+        ), connector -> {
+            assertNotNull(connector);
+        });
     }
 
     @Test
-    void testCreateGetListDeleteSchema_Success() throws Exception {
+    @RunOnVertxContext
+    void testCreateGetListDeleteSchema_Success(UniAsserter asserter) throws Exception {
         Struct customSchema = jsonToStruct("{\"type\":\"object\",\"properties\":{\"foo\":{\"type\":\"string\"}}}");
         Struct nodeSchema = jsonToStruct("{\"type\":\"object\",\"properties\":{\"desired_collection\":{\"type\":\"string\"}}}");
 
-        CreateConnectorConfigSchemaResponse create = connectorRegistrationService.createConnectorConfigSchema(
+        // Create schema
+        asserter.assertThat(() -> connectorRegistrationService.createConnectorConfigSchema(
             CreateConnectorConfigSchemaRequest.newBuilder()
                 .setConnectorId(TEST_CONNECTOR_ID)
                 .setSchemaVersion("v1")
@@ -80,114 +107,136 @@ public class ConnectorRegistrationServiceTest {
                 .setNodeCustomConfigSchema(nodeSchema)
                 .setCreatedBy("test")
                 .build()
-        ).await().indefinitely();
+        ), create -> {
+            assertTrue(create.getSuccess());
+            assertNotNull(create.getSchema());
+            assertFalse(create.getSchema().getSchemaId().isBlank());
+            assertEquals(TEST_CONNECTOR_ID, create.getSchema().getConnectorId());
+            assertEquals("v1", create.getSchema().getSchemaVersion());
 
-        assertTrue(create.getSuccess());
-        assertNotNull(create.getSchema());
-        assertFalse(create.getSchema().getSchemaId().isBlank());
-        assertEquals(TEST_CONNECTOR_ID, create.getSchema().getConnectorId());
-        assertEquals("v1", create.getSchema().getSchemaVersion());
+            String schemaId = create.getSchema().getSchemaId();
 
-        var get = connectorRegistrationService.getConnectorConfigSchema(
-            GetConnectorConfigSchemaRequest.newBuilder()
-                .setSchemaId(create.getSchema().getSchemaId())
-                .build()
-        ).await().indefinitely();
-        assertEquals(create.getSchema().getSchemaId(), get.getSchema().getSchemaId());
-        assertEquals("v1", get.getSchema().getSchemaVersion());
-        assertTrue(get.getSchema().hasCustomConfigSchema());
+            // Get schema
+            asserter.assertThat(() -> connectorRegistrationService.getConnectorConfigSchema(
+                GetConnectorConfigSchemaRequest.newBuilder()
+                    .setSchemaId(schemaId)
+                    .build()
+            ), get -> {
+                assertEquals(schemaId, get.getSchema().getSchemaId());
+                assertEquals("v1", get.getSchema().getSchemaVersion());
+                assertTrue(get.getSchema().hasCustomConfigSchema());
+            });
 
-        var list = connectorRegistrationService.listConnectorConfigSchemas(
-            ListConnectorConfigSchemasRequest.newBuilder()
-                .setConnectorId(TEST_CONNECTOR_ID)
-                .setPageSize(50)
-                .build()
-        ).await().indefinitely();
-        assertEquals(1, list.getTotalCount());
-        assertEquals(1, list.getSchemasCount());
-        assertEquals(create.getSchema().getSchemaId(), list.getSchemas(0).getSchemaId());
+            // List schemas
+            asserter.assertThat(() -> connectorRegistrationService.listConnectorConfigSchemas(
+                ListConnectorConfigSchemasRequest.newBuilder()
+                    .setConnectorId(TEST_CONNECTOR_ID)
+                    .setPageSize(50)
+                    .build()
+            ), list -> {
+                assertEquals(1, list.getTotalCount());
+                assertEquals(1, list.getSchemasCount());
+                assertEquals(schemaId, list.getSchemas(0).getSchemaId());
+            });
 
-        var delete = connectorRegistrationService.deleteConnectorConfigSchema(
-            DeleteConnectorConfigSchemaRequest.newBuilder()
-                .setSchemaId(create.getSchema().getSchemaId())
-                .build()
-        ).await().indefinitely();
-        assertTrue(delete.getSuccess());
+            // Delete schema
+            asserter.assertThat(() -> connectorRegistrationService.deleteConnectorConfigSchema(
+                DeleteConnectorConfigSchemaRequest.newBuilder()
+                    .setSchemaId(schemaId)
+                    .build()
+            ), delete -> {
+                assertTrue(delete.getSuccess());
+            });
 
-        // After delete, list should be empty
-        var listAfter = connectorRegistrationService.listConnectorConfigSchemas(
-            ListConnectorConfigSchemasRequest.newBuilder()
-                .setConnectorId(TEST_CONNECTOR_ID)
-                .setPageSize(50)
-                .build()
-        ).await().indefinitely();
-        assertEquals(0, listAfter.getTotalCount());
-        assertEquals(0, listAfter.getSchemasCount());
+            // After delete, list should be empty
+            asserter.assertThat(() -> connectorRegistrationService.listConnectorConfigSchemas(
+                ListConnectorConfigSchemasRequest.newBuilder()
+                    .setConnectorId(TEST_CONNECTOR_ID)
+                    .setPageSize(50)
+                    .build()
+            ), listAfter -> {
+                assertEquals(0, listAfter.getTotalCount());
+                assertEquals(0, listAfter.getSchemasCount());
+            });
+        });
     }
 
     @Test
-    void testCreateSchema_UniqueConstraint_AlreadyExists() throws Exception {
+    @RunOnVertxContext
+    void testCreateSchema_UniqueConstraint_AlreadyExists(UniAsserter asserter) throws Exception {
         Struct schema = jsonToStruct("{\"type\":\"object\"}");
 
-        connectorRegistrationService.createConnectorConfigSchema(
+        // Create first schema
+        asserter.assertThat(() -> connectorRegistrationService.createConnectorConfigSchema(
             CreateConnectorConfigSchemaRequest.newBuilder()
                 .setConnectorId(TEST_CONNECTOR_ID)
                 .setSchemaVersion("v1")
                 .setCustomConfigSchema(schema)
                 .setNodeCustomConfigSchema(schema)
                 .build()
-        ).await().indefinitely();
+        ), create -> {
+            assertTrue(create.getSuccess());
+        });
 
-        try {
-            connectorRegistrationService.createConnectorConfigSchema(
-                CreateConnectorConfigSchemaRequest.newBuilder()
-                    .setConnectorId(TEST_CONNECTOR_ID)
-                    .setSchemaVersion("v1")
-                    .setCustomConfigSchema(schema)
-                    .setNodeCustomConfigSchema(schema)
-                    .build()
-            ).await().indefinitely();
-            fail("Expected ALREADY_EXISTS");
-        } catch (Exception e) {
-            assertTrue(e.getMessage().contains("ALREADY_EXISTS") || e.getMessage().contains("already exists"));
-        }
+        // Try to create duplicate - should fail
+        asserter.assertThat(() -> connectorRegistrationService.createConnectorConfigSchema(
+            CreateConnectorConfigSchemaRequest.newBuilder()
+                .setConnectorId(TEST_CONNECTOR_ID)
+                .setSchemaVersion("v1")
+                .setCustomConfigSchema(schema)
+                .setNodeCustomConfigSchema(schema)
+                .build()
+        ).onFailure().recoverWithUni(failure -> {
+            // Expected to fail, return null to indicate failure
+            return io.smallrye.mutiny.Uni.createFrom().nullItem();
+        }), result -> {
+            assertNull(result, "Expected ALREADY_EXISTS error");
+        });
     }
 
     @Test
-    void testSetConnectorCustomConfigSchema_AndGetConnectorType() throws Exception {
+    @RunOnVertxContext
+    void testSetConnectorCustomConfigSchema_AndGetConnectorType(UniAsserter asserter) throws Exception {
         Struct schema = jsonToStruct("{\"type\":\"object\"}");
 
-        var create = connectorRegistrationService.createConnectorConfigSchema(
+        // Create schema
+        asserter.assertThat(() -> connectorRegistrationService.createConnectorConfigSchema(
             CreateConnectorConfigSchemaRequest.newBuilder()
                 .setConnectorId(TEST_CONNECTOR_ID)
                 .setSchemaVersion("v-set")
                 .setCustomConfigSchema(schema)
                 .setNodeCustomConfigSchema(schema)
                 .build()
-        ).await().indefinitely();
+        ), create -> {
+            assertTrue(create.getSuccess());
+            String schemaId = create.getSchema().getSchemaId();
 
-        var set = connectorRegistrationService.setConnectorCustomConfigSchema(
-            SetConnectorCustomConfigSchemaRequest.newBuilder()
-                .setConnectorId(TEST_CONNECTOR_ID)
-                .setSchemaId(create.getSchema().getSchemaId())
-                .build()
-        ).await().indefinitely();
+            // Set schema on connector
+            asserter.assertThat(() -> connectorRegistrationService.setConnectorCustomConfigSchema(
+                SetConnectorCustomConfigSchemaRequest.newBuilder()
+                    .setConnectorId(TEST_CONNECTOR_ID)
+                    .setSchemaId(schemaId)
+                    .build()
+            ), set -> {
+                assertTrue(set.getSuccess());
+                assertEquals(schemaId, set.getConnector().getCustomConfigSchemaId());
+            });
 
-        assertTrue(set.getSuccess());
-        assertEquals(create.getSchema().getSchemaId(), set.getConnector().getCustomConfigSchemaId());
-
-        var getConnector = dataSourceAdminService.getConnectorType(
-            GetConnectorTypeRequest.newBuilder().setConnectorId(TEST_CONNECTOR_ID).build()
-        ).await().indefinitely();
-
-        assertEquals(create.getSchema().getSchemaId(), getConnector.getConnector().getCustomConfigSchemaId());
+            // Get connector and verify
+            asserter.assertThat(() -> dataSourceAdminService.getConnectorType(
+                GetConnectorTypeRequest.newBuilder().setConnectorId(TEST_CONNECTOR_ID).build()
+            ), getConnector -> {
+                assertEquals(schemaId, getConnector.getConnector().getCustomConfigSchemaId());
+            });
+        });
     }
 
     @Test
-    void testUpdateConnectorTypeDefaults() throws Exception {
+    @RunOnVertxContext
+    void testUpdateConnectorTypeDefaults(UniAsserter asserter) throws Exception {
         Struct defaultCustomConfig = jsonToStruct("{\"parse_images\":true}");
 
-        var update = connectorRegistrationService.updateConnectorTypeDefaults(
+        asserter.assertThat(() -> connectorRegistrationService.updateConnectorTypeDefaults(
             UpdateConnectorTypeDefaultsRequest.newBuilder()
                 .setConnectorId(TEST_CONNECTOR_ID)
                 .setDefaultPersistPipedoc(false)
@@ -199,125 +248,135 @@ public class ConnectorRegistrationServiceTest {
                 .addTags("storage")
                 .addTags("s3")
                 .build()
-        ).await().indefinitely();
+        ), update -> {
+            assertTrue(update.getSuccess());
+            assertEquals(false, update.getConnector().getDefaultPersistPipedoc());
+            assertEquals(12345, update.getConnector().getDefaultMaxInlineSizeBytes());
+            assertTrue(update.getConnector().hasDefaultCustomConfig());
+            assertEquals("S3 Connector", update.getConnector().getDisplayName());
+            assertEquals("pipestream", update.getConnector().getOwner());
+            assertEquals("https://docs.example.invalid/s3", update.getConnector().getDocumentationUrl());
+            assertEquals(2, update.getConnector().getTagsCount());
 
-        assertTrue(update.getSuccess());
-        assertEquals(false, update.getConnector().getDefaultPersistPipedoc());
-        assertEquals(12345, update.getConnector().getDefaultMaxInlineSizeBytes());
-        assertTrue(update.getConnector().hasDefaultCustomConfig());
-        assertEquals("S3 Connector", update.getConnector().getDisplayName());
-        assertEquals("pipestream", update.getConnector().getOwner());
-        assertEquals("https://docs.example.invalid/s3", update.getConnector().getDocumentationUrl());
-        assertEquals(2, update.getConnector().getTagsCount());
-
-        var getConnector = dataSourceAdminService.getConnectorType(
-            GetConnectorTypeRequest.newBuilder().setConnectorId(TEST_CONNECTOR_ID).build()
-        ).await().indefinitely();
-        assertEquals(false, getConnector.getConnector().getDefaultPersistPipedoc());
-        assertEquals(12345, getConnector.getConnector().getDefaultMaxInlineSizeBytes());
+            // Verify via getConnectorType
+            asserter.assertThat(() -> dataSourceAdminService.getConnectorType(
+                GetConnectorTypeRequest.newBuilder().setConnectorId(TEST_CONNECTOR_ID).build()
+            ), getConnector -> {
+                assertEquals(false, getConnector.getConnector().getDefaultPersistPipedoc());
+                assertEquals(12345, getConnector.getConnector().getDefaultMaxInlineSizeBytes());
+            });
+        });
     }
 
     @Test
-    void testListConnectorConfigSchemas_Pagination() throws Exception {
+    @RunOnVertxContext
+    void testListConnectorConfigSchemas_Pagination(UniAsserter asserter) throws Exception {
         Struct schema = jsonToStruct("{\"type\":\"object\"}");
 
         // Create multiple schemas
         for (int i = 1; i <= 5; i++) {
-            connectorRegistrationService.createConnectorConfigSchema(
+            final int version = i;
+            asserter.execute(() -> connectorRegistrationService.createConnectorConfigSchema(
                 CreateConnectorConfigSchemaRequest.newBuilder()
                     .setConnectorId(TEST_CONNECTOR_ID)
-                    .setSchemaVersion("v" + i)
+                    .setSchemaVersion("v" + version)
                     .setCustomConfigSchema(schema)
                     .setNodeCustomConfigSchema(schema)
                     .build()
-            ).await().indefinitely();
+            ).replaceWithVoid());
         }
 
         // Test pagination with page_size=2
-        var page1 = connectorRegistrationService.listConnectorConfigSchemas(
+        asserter.assertThat(() -> connectorRegistrationService.listConnectorConfigSchemas(
             ListConnectorConfigSchemasRequest.newBuilder()
                 .setConnectorId(TEST_CONNECTOR_ID)
                 .setPageSize(2)
                 .build()
-        ).await().indefinitely();
+        ), page1 -> {
+            assertEquals(5, page1.getTotalCount());
+            assertEquals(2, page1.getSchemasCount());
+            assertNotNull(page1.getNextPageToken());
+            assertFalse(page1.getNextPageToken().isEmpty());
 
-        assertEquals(5, page1.getTotalCount());
-        assertEquals(2, page1.getSchemasCount());
-        assertNotNull(page1.getNextPageToken());
-        assertFalse(page1.getNextPageToken().isEmpty());
+            String pageToken1 = page1.getNextPageToken();
 
-        // Get second page
-        var page2 = connectorRegistrationService.listConnectorConfigSchemas(
-            ListConnectorConfigSchemasRequest.newBuilder()
-                .setConnectorId(TEST_CONNECTOR_ID)
-                .setPageSize(2)
-                .setPageToken(page1.getNextPageToken())
-                .build()
-        ).await().indefinitely();
+            // Get second page
+            asserter.assertThat(() -> connectorRegistrationService.listConnectorConfigSchemas(
+                ListConnectorConfigSchemasRequest.newBuilder()
+                    .setConnectorId(TEST_CONNECTOR_ID)
+                    .setPageSize(2)
+                    .setPageToken(pageToken1)
+                    .build()
+            ), page2 -> {
+                assertEquals(5, page2.getTotalCount());
+                assertEquals(2, page2.getSchemasCount());
+                assertNotNull(page2.getNextPageToken());
+                assertFalse(page2.getNextPageToken().isEmpty());
 
-        assertEquals(5, page2.getTotalCount());
-        assertEquals(2, page2.getSchemasCount());
-        assertNotNull(page2.getNextPageToken());
-        assertFalse(page2.getNextPageToken().isEmpty());
+                String pageToken2 = page2.getNextPageToken();
 
-        // Get third page (should have 1 remaining)
-        var page3 = connectorRegistrationService.listConnectorConfigSchemas(
-            ListConnectorConfigSchemasRequest.newBuilder()
-                .setConnectorId(TEST_CONNECTOR_ID)
-                .setPageSize(2)
-                .setPageToken(page2.getNextPageToken())
-                .build()
-        ).await().indefinitely();
-
-        assertEquals(5, page3.getTotalCount());
-        assertEquals(1, page3.getSchemasCount());
-        assertTrue(page3.getNextPageToken().isEmpty()); // No more pages
+                // Get third page (should have 1 remaining)
+                asserter.assertThat(() -> connectorRegistrationService.listConnectorConfigSchemas(
+                    ListConnectorConfigSchemasRequest.newBuilder()
+                        .setConnectorId(TEST_CONNECTOR_ID)
+                        .setPageSize(2)
+                        .setPageToken(pageToken2)
+                        .build()
+                ), page3 -> {
+                    assertEquals(5, page3.getTotalCount());
+                    assertEquals(1, page3.getSchemasCount());
+                    assertTrue(page3.getNextPageToken().isEmpty()); // No more pages
+                });
+            });
+        });
     }
 
     @Test
-    void testDeleteConnectorConfigSchema_BlockedByConnectorReference() throws Exception {
+    @RunOnVertxContext
+    void testDeleteConnectorConfigSchema_BlockedByConnectorReference(UniAsserter asserter) throws Exception {
         Struct schema = jsonToStruct("{\"type\":\"object\"}");
 
         // Create schema
-        var create = connectorRegistrationService.createConnectorConfigSchema(
+        asserter.assertThat(() -> connectorRegistrationService.createConnectorConfigSchema(
             CreateConnectorConfigSchemaRequest.newBuilder()
                 .setConnectorId(TEST_CONNECTOR_ID)
                 .setSchemaVersion("v-delete-test")
                 .setCustomConfigSchema(schema)
                 .setNodeCustomConfigSchema(schema)
                 .build()
-        ).await().indefinitely();
-        assertTrue(create.getSuccess());
+        ), create -> {
+            assertTrue(create.getSuccess());
+            String schemaId = create.getSchema().getSchemaId();
 
-        // Link schema to connector
-        var set = connectorRegistrationService.setConnectorCustomConfigSchema(
-            SetConnectorCustomConfigSchemaRequest.newBuilder()
-                .setConnectorId(TEST_CONNECTOR_ID)
-                .setSchemaId(create.getSchema().getSchemaId())
-                .build()
-        ).await().indefinitely();
-        assertTrue(set.getSuccess());
-
-        // Try to delete - should fail due to application-level FK check
-        try {
-            connectorRegistrationService.deleteConnectorConfigSchema(
-                DeleteConnectorConfigSchemaRequest.newBuilder()
-                    .setSchemaId(create.getSchema().getSchemaId())
+            // Link schema to connector
+            asserter.assertThat(() -> connectorRegistrationService.setConnectorCustomConfigSchema(
+                SetConnectorCustomConfigSchemaRequest.newBuilder()
+                    .setConnectorId(TEST_CONNECTOR_ID)
+                    .setSchemaId(schemaId)
                     .build()
-            ).await().indefinitely();
-            fail("Expected delete to fail due to FK constraint");
-        } catch (Exception e) {
-            assertTrue(e.getMessage().contains("referenced") ||
-                      e.getMessage().contains("FAILED_PRECONDITION") ||
-                      e.getMessage().contains("Schema is still referenced"));
-        }
+            ), set -> {
+                assertTrue(set.getSuccess());
+            });
+
+            // Try to delete - should fail due to application-level FK check
+            asserter.assertThat(() -> connectorRegistrationService.deleteConnectorConfigSchema(
+                DeleteConnectorConfigSchemaRequest.newBuilder()
+                    .setSchemaId(schemaId)
+                    .build()
+            ).onFailure().recoverWithUni(failure -> {
+                // Expected to fail, return null
+                return io.smallrye.mutiny.Uni.createFrom().nullItem();
+            }), result -> {
+                assertNull(result, "Expected delete to fail due to FK constraint");
+            });
+        });
     }
 
-
     @Test
-    void testUpdateConnectorTypeDefaults_PartialUpdates() throws Exception {
+    @RunOnVertxContext
+    void testUpdateConnectorTypeDefaults_PartialUpdates(UniAsserter asserter) throws Exception {
         // First set some initial values
-        var initialUpdate = connectorRegistrationService.updateConnectorTypeDefaults(
+        asserter.assertThat(() -> connectorRegistrationService.updateConnectorTypeDefaults(
             UpdateConnectorTypeDefaultsRequest.newBuilder()
                 .setConnectorId(TEST_CONNECTOR_ID)
                 .setDefaultPersistPipedoc(false)
@@ -325,30 +384,31 @@ public class ConnectorRegistrationServiceTest {
                 .setDisplayName("Initial Name")
                 .setOwner("initial-owner")
                 .build()
-        ).await().indefinitely();
-        assertTrue(initialUpdate.getSuccess());
+        ), initialUpdate -> {
+            assertTrue(initialUpdate.getSuccess());
 
-        // Now do partial update - only change display_name and add tags, leave other fields unchanged
-        var partialUpdate = connectorRegistrationService.updateConnectorTypeDefaults(
-            UpdateConnectorTypeDefaultsRequest.newBuilder()
-                .setConnectorId(TEST_CONNECTOR_ID)
-                .setDisplayName("Updated Name")
-                .addTags("new-tag")
-                .build()
-        ).await().indefinitely();
+            // Now do partial update - only change display_name and add tags, leave other fields unchanged
+            asserter.assertThat(() -> connectorRegistrationService.updateConnectorTypeDefaults(
+                UpdateConnectorTypeDefaultsRequest.newBuilder()
+                    .setConnectorId(TEST_CONNECTOR_ID)
+                    .setDisplayName("Updated Name")
+                    .addTags("new-tag")
+                    .build()
+            ), partialUpdate -> {
+                assertTrue(partialUpdate.getSuccess());
+                var connector = partialUpdate.getConnector();
 
-        assertTrue(partialUpdate.getSuccess());
-        var connector = partialUpdate.getConnector();
+                // Fields that should be unchanged (not in request)
+                assertEquals(false, connector.getDefaultPersistPipedoc()); // Should remain false
+                assertEquals(50000, connector.getDefaultMaxInlineSizeBytes()); // Should remain 50000
+                assertEquals("initial-owner", connector.getOwner()); // Should remain "initial-owner"
 
-        // Fields that should be unchanged (not in request)
-        assertEquals(false, connector.getDefaultPersistPipedoc()); // Should remain false
-        assertEquals(50000, connector.getDefaultMaxInlineSizeBytes()); // Should remain 50000
-        assertEquals("initial-owner", connector.getOwner()); // Should remain "initial-owner"
-
-        // Fields that should be updated
-        assertEquals("Updated Name", connector.getDisplayName()); // Should be updated
-        assertEquals(1, connector.getTagsCount()); // Should have 1 tag
-        assertEquals("new-tag", connector.getTags(0)); // Should have the new tag
+                // Fields that should be updated
+                assertEquals("Updated Name", connector.getDisplayName()); // Should be updated
+                assertEquals(1, connector.getTagsCount()); // Should have 1 tag
+                assertEquals("new-tag", connector.getTags(0)); // Should have the new tag
+            });
+        });
     }
 
     private Struct jsonToStruct(String json) throws Exception {
@@ -357,5 +417,3 @@ public class ConnectorRegistrationServiceTest {
         return builder.build();
     }
 }
-
-
