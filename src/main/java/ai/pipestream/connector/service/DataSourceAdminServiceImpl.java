@@ -33,7 +33,6 @@ import ai.pipestream.connector.repository.DataSourceRepository;
 import ai.pipestream.connector.util.ApiKeyUtil;
 import io.quarkus.grpc.GrpcService;
 import io.smallrye.mutiny.Uni;
-import io.smallrye.mutiny.infrastructure.Infrastructure;
 import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
 
@@ -80,79 +79,75 @@ public class DataSourceAdminServiceImpl extends MutinyDataSourceAdminServiceGrpc
      */
     @Override
     public Uni<CreateDataSourceResponse> createDataSource(CreateDataSourceRequest request) {
-        return Uni.createFrom().item(() -> {
-            LOG.infof("Creating datasource: account=%s, connector=%s, name=%s",
-                request.getAccountId(), request.getConnectorId(), request.getName());
+        LOG.infof("Creating datasource: account=%s, connector=%s, name=%s",
+            request.getAccountId(), request.getConnectorId(), request.getName());
 
-            // Validate required fields
-            if (request.getAccountId() == null || request.getAccountId().isEmpty()) {
-                throw new IllegalArgumentException("Account ID is required");
-            }
-            if (request.getConnectorId() == null || request.getConnectorId().isEmpty()) {
-                throw new IllegalArgumentException("Connector ID is required");
-            }
-            if (request.getName() == null || request.getName().isEmpty()) {
-                throw new IllegalArgumentException("Name is required");
-            }
-            if (request.getDriveName() == null || request.getDriveName().isEmpty()) {
-                throw new IllegalArgumentException("Drive name is required");
-            }
+        // Validate required fields
+        if (request.getAccountId() == null || request.getAccountId().isEmpty()) {
+            return Uni.createFrom().failure(new IllegalArgumentException("Account ID is required"));
+        }
+        if (request.getConnectorId() == null || request.getConnectorId().isEmpty()) {
+            return Uni.createFrom().failure(new IllegalArgumentException("Connector ID is required"));
+        }
+        if (request.getName() == null || request.getName().isEmpty()) {
+            return Uni.createFrom().failure(new IllegalArgumentException("Name is required"));
+        }
+        if (request.getDriveName() == null || request.getDriveName().isEmpty()) {
+            return Uni.createFrom().failure(new IllegalArgumentException("Drive name is required"));
+        }
 
-            // Verify connector type exists
-            Connector connector = dataSourceRepository.findConnectorById(request.getConnectorId());
-            if (connector == null) {
-                throw Status.NOT_FOUND
-                    .withDescription("Connector type not found: " + request.getConnectorId())
-                    .asRuntimeException();
-            }
+        // Verify connector exists, then validate account, then create datasource
+        return dataSourceRepository.findConnectorById(request.getConnectorId())
+            .flatMap(connector -> {
+                if (connector == null) {
+                    return Uni.createFrom().failure(Status.NOT_FOUND
+                        .withDescription("Connector type not found: " + request.getConnectorId())
+                        .asRuntimeException());
+                }
+                return accountValidationService.validateAccountExistsAndActive(request.getAccountId())
+                    .replaceWith(connector);
+            })
+            .flatMap(connector -> {
+                // Generate API key
+                String apiKey = apiKeyUtil.generateApiKey();
+                String apiKeyHash = apiKeyUtil.hashApiKey(apiKey);
 
-            return request;
-        })
-        .runSubscriptionOn(Infrastructure.getDefaultWorkerPool())
-        // Validate account exists and is active via gRPC
-        .flatMap(req -> accountValidationService.validateAccountExistsAndActive(req.getAccountId())
-            .replaceWith(req))
-        // Create datasource with generated API key
-        .flatMap(req -> Uni.createFrom().item(() -> {
-            // Generate API key
-            String apiKey = apiKeyUtil.generateApiKey();
-            String apiKeyHash = apiKeyUtil.hashApiKey(apiKey);
+                // Build metadata JSON from request
+                String metadataJson = "{}";
+                if (!request.getMetadataMap().isEmpty()) {
+                    metadataJson = mapToJson(request.getMetadataMap());
+                }
 
-            // Build metadata JSON from request
-            String metadataJson = "{}";
-            if (!req.getMetadataMap().isEmpty()) {
-                metadataJson = mapToJson(req.getMetadataMap());
-            }
+                // Create datasource (reactive)
+                return dataSourceRepository.createDataSource(
+                    request.getAccountId(),
+                    request.getConnectorId(),
+                    request.getName(),
+                    apiKeyHash,
+                    request.getDriveName(),
+                    metadataJson
+                )
+                .flatMap(datasource -> {
+                    if (datasource == null) {
+                        return Uni.createFrom().failure(Status.ALREADY_EXISTS
+                            .withDescription("DataSource already exists for account " + request.getAccountId() +
+                                             " and connector " + request.getConnectorId())
+                            .asRuntimeException());
+                    }
 
-            // Create datasource
-            DataSource datasource = dataSourceRepository.createDataSource(
-                req.getAccountId(),
-                req.getConnectorId(),
-                req.getName(),
-                apiKeyHash,
-                req.getDriveName(),
-                metadataJson
-            );
+                    LOG.infof("Created datasource %s for account %s with connector %s",
+                        datasource.datasourceId, request.getAccountId(), request.getConnectorId());
 
-            if (datasource == null) {
-                throw Status.ALREADY_EXISTS
-                    .withDescription("DataSource already exists for account " + req.getAccountId() +
-                                     " and connector " + req.getConnectorId())
-                    .asRuntimeException();
-            }
+                    // Build a DataSource proto with API key included (only returned at creation time)
+                    ai.pipestream.connector.intake.v1.DataSource dsProto = toProtoDataSourceWithApiKey(datasource, apiKey);
 
-            LOG.infof("Created datasource %s for account %s with connector %s",
-                datasource.datasourceId, req.getAccountId(), req.getConnectorId());
-
-            // Build a DataSource proto with API key included (only returned at creation time)
-            ai.pipestream.connector.intake.v1.DataSource dsProto = toProtoDataSourceWithApiKey(datasource, apiKey);
-
-            return CreateDataSourceResponse.newBuilder()
-                .setSuccess(true)
-                .setDatasource(dsProto)
-                .setMessage("DataSource created successfully")
-                .build();
-        }).runSubscriptionOn(Infrastructure.getDefaultWorkerPool()));
+                    return Uni.createFrom().item(CreateDataSourceResponse.newBuilder()
+                        .setSuccess(true)
+                        .setDatasource(dsProto)
+                        .setMessage("DataSource created successfully")
+                        .build());
+                });
+            });
     }
 
     /**
@@ -163,37 +158,34 @@ public class DataSourceAdminServiceImpl extends MutinyDataSourceAdminServiceGrpc
      */
     @Override
     public Uni<UpdateDataSourceResponse> updateDataSource(UpdateDataSourceRequest request) {
-        return Uni.createFrom().item(() -> {
-            LOG.infof("Updating datasource: %s", request.getDatasourceId());
+        LOG.infof("Updating datasource: %s", request.getDatasourceId());
 
-            if (request.getDatasourceId() == null || request.getDatasourceId().isEmpty()) {
-                throw new IllegalArgumentException("DataSource ID is required");
-            }
+        if (request.getDatasourceId() == null || request.getDatasourceId().isEmpty()) {
+            return Uni.createFrom().failure(new IllegalArgumentException("DataSource ID is required"));
+        }
 
-            String metadataJson = null;
-            if (!request.getMetadataMap().isEmpty()) {
-                metadataJson = mapToJson(request.getMetadataMap());
-            }
+        String metadataJson = null;
+        if (!request.getMetadataMap().isEmpty()) {
+            metadataJson = mapToJson(request.getMetadataMap());
+        }
 
-            DataSource updated = dataSourceRepository.updateDataSource(
+        return dataSourceRepository.updateDataSource(
                 request.getDatasourceId(),
                 request.getName(),
                 metadataJson,
-                request.getDriveName()
-            );
-
-            if (updated == null) {
-                throw Status.NOT_FOUND
-                    .withDescription("DataSource not found: " + request.getDatasourceId())
-                    .asRuntimeException();
-            }
-
-            return UpdateDataSourceResponse.newBuilder()
-                .setSuccess(true)
-                .setMessage("DataSource updated successfully")
-                .setDatasource(toProtoDataSource(updated))
-                .build();
-        }).runSubscriptionOn(Infrastructure.getDefaultWorkerPool());
+                request.getDriveName())
+            .flatMap(updated -> {
+                if (updated == null) {
+                    return Uni.createFrom().failure(Status.NOT_FOUND
+                        .withDescription("DataSource not found: " + request.getDatasourceId())
+                        .asRuntimeException());
+                }
+                return Uni.createFrom().item(UpdateDataSourceResponse.newBuilder()
+                    .setSuccess(true)
+                    .setMessage("DataSource updated successfully")
+                    .setDatasource(toProtoDataSource(updated))
+                    .build());
+            });
     }
 
     /**
@@ -204,20 +196,19 @@ public class DataSourceAdminServiceImpl extends MutinyDataSourceAdminServiceGrpc
      */
     @Override
     public Uni<GetDataSourceResponse> getDataSource(GetDataSourceRequest request) {
-        return Uni.createFrom().item(() -> {
-            LOG.infof("Getting datasource: %s", request.getDatasourceId());
+        LOG.infof("Getting datasource: %s", request.getDatasourceId());
 
-            DataSource datasource = dataSourceRepository.findByDatasourceId(request.getDatasourceId());
-            if (datasource == null) {
-                throw Status.NOT_FOUND
-                    .withDescription("DataSource not found: " + request.getDatasourceId())
-                    .asRuntimeException();
-            }
-
-            return GetDataSourceResponse.newBuilder()
-                .setDatasource(toProtoDataSource(datasource))
-                .build();
-        }).runSubscriptionOn(Infrastructure.getDefaultWorkerPool());
+        return dataSourceRepository.findByDatasourceId(request.getDatasourceId())
+            .flatMap(datasource -> {
+                if (datasource == null) {
+                    return Uni.createFrom().failure(Status.NOT_FOUND
+                        .withDescription("DataSource not found: " + request.getDatasourceId())
+                        .asRuntimeException());
+                }
+                return Uni.createFrom().item(GetDataSourceResponse.newBuilder()
+                    .setDatasource(toProtoDataSource(datasource))
+                    .build());
+            });
     }
 
     /**
@@ -228,42 +219,47 @@ public class DataSourceAdminServiceImpl extends MutinyDataSourceAdminServiceGrpc
      */
     @Override
     public Uni<ValidateApiKeyResponse> validateApiKey(ValidateApiKeyRequest request) {
-        return Uni.createFrom().item(() -> {
-            LOG.debugf("Validating API key for datasource: %s", request.getDatasourceId());
+        LOG.debugf("Validating API key for datasource: %s", request.getDatasourceId());
 
-            DataSource datasource = dataSourceRepository.findByDatasourceId(request.getDatasourceId());
-            if (datasource == null) {
-                return ValidateApiKeyResponse.newBuilder()
-                    .setValid(false)
-                    .setMessage("DataSource not found: " + request.getDatasourceId())
-                    .build();
-            }
+        return dataSourceRepository.findByDatasourceId(request.getDatasourceId())
+            .flatMap(datasource -> {
+                if (datasource == null) {
+                    return Uni.createFrom().item(ValidateApiKeyResponse.newBuilder()
+                        .setValid(false)
+                        .setMessage("DataSource not found: " + request.getDatasourceId())
+                        .build());
+                }
 
-            if (!datasource.active) {
-                return ValidateApiKeyResponse.newBuilder()
-                    .setValid(false)
-                    .setMessage("DataSource is inactive: " + request.getDatasourceId())
-                    .build();
-            }
+                if (!datasource.active) {
+                    return Uni.createFrom().item(ValidateApiKeyResponse.newBuilder()
+                        .setValid(false)
+                        .setMessage("DataSource is inactive: " + request.getDatasourceId())
+                        .build());
+                }
 
-            // Verify API key
-            boolean valid = apiKeyUtil.verifyApiKey(request.getApiKey(), datasource.apiKeyHash);
+                // Verify API key (synchronous operation)
+                boolean valid = apiKeyUtil.verifyApiKey(request.getApiKey(), datasource.apiKeyHash);
 
-            if (valid) {
-                LOG.debugf("API key validated successfully for datasource: %s", request.getDatasourceId());
-                return ValidateApiKeyResponse.newBuilder()
-                    .setValid(true)
-                    .setMessage("API key is valid")
-                    .setConfig(toProtoDataSourceConfig(datasource))
-                    .build();
-            } else {
-                LOG.warnf("API key validation failed for datasource: %s", request.getDatasourceId());
-                return ValidateApiKeyResponse.newBuilder()
-                    .setValid(false)
-                    .setMessage("Invalid API key")
-                    .build();
-            }
-        }).runSubscriptionOn(Infrastructure.getDefaultWorkerPool());
+                if (valid) {
+                    LOG.debugf("API key validated successfully for datasource: %s", request.getDatasourceId());
+                    // Load connector for config merging (reactive)
+                    return dataSourceRepository.findConnectorById(datasource.connectorId)
+                        .map(connector -> {
+                            DataSourceConfig config = toProtoDataSourceConfig(datasource, connector);
+                            return ValidateApiKeyResponse.newBuilder()
+                                .setValid(true)
+                                .setMessage("API key is valid")
+                                .setConfig(config)
+                                .build();
+                        });
+                } else {
+                    LOG.warnf("API key validation failed for datasource: %s", request.getDatasourceId());
+                    return Uni.createFrom().item(ValidateApiKeyResponse.newBuilder()
+                        .setValid(false)
+                        .setMessage("Invalid API key")
+                        .build());
+                }
+            });
     }
 
     /**
@@ -274,50 +270,58 @@ public class DataSourceAdminServiceImpl extends MutinyDataSourceAdminServiceGrpc
      */
     @Override
     public Uni<ListDataSourcesResponse> listDataSources(ListDataSourcesRequest request) {
-        return Uni.createFrom().item(() -> {
-            LOG.debugf("Listing datasources: account=%s, includeInactive=%s",
-                request.getAccountId(), request.getIncludeInactive());
+        LOG.debugf("Listing datasources: account=%s, includeInactive=%s",
+            request.getAccountId(), request.getIncludeInactive());
 
-            // Parse page token as offset
-            int offset = 0;
-            if (request.getPageToken() != null && !request.getPageToken().isEmpty()) {
-                try {
-                    offset = Integer.parseInt(request.getPageToken());
-                } catch (NumberFormatException e) {
-                    LOG.warnf("Invalid page token '%s', using offset 0", request.getPageToken());
-                }
+        // Parse page token as offset
+        int offset = 0;
+        if (request.getPageToken() != null && !request.getPageToken().isEmpty()) {
+            try {
+                offset = Integer.parseInt(request.getPageToken());
+            } catch (NumberFormatException e) {
+                LOG.warnf("Invalid page token '%s', using offset 0", request.getPageToken());
             }
+        }
 
-            int pageSize = request.getPageSize() > 0 ? request.getPageSize() : 50;
+        int pageSize = request.getPageSize() > 0 ? request.getPageSize() : 50;
 
-            List<DataSource> datasources;
-            if (request.getAccountId() != null && !request.getAccountId().isEmpty()) {
-                datasources = dataSourceRepository.listByAccount(
-                    request.getAccountId(),
-                    request.getIncludeInactive(),
-                    pageSize + 1,
-                    offset
-                );
-            } else {
-                datasources = dataSourceRepository.listAll(
-                    request.getIncludeInactive(),
-                    pageSize + 1,
-                    offset
-                );
-            }
+        // Fetch datasources and count in parallel
+        Uni<List<DataSource>> datasourcesUni;
+        if (request.getAccountId() != null && !request.getAccountId().isEmpty()) {
+            datasourcesUni = dataSourceRepository.listByAccount(
+                request.getAccountId(),
+                request.getIncludeInactive(),
+                pageSize + 1,
+                offset
+            );
+        } else {
+            datasourcesUni = dataSourceRepository.listAll(
+                request.getIncludeInactive(),
+                pageSize + 1,
+                offset
+            );
+        }
+
+        Uni<Long> countUni = dataSourceRepository.countDataSources(
+            request.getAccountId(),
+            request.getIncludeInactive()
+        );
+
+        // Capture offset and pageSize in effectively final variables for lambda
+        final int finalOffset = offset;
+        final int finalPageSize = pageSize;
+        
+        return Uni.combine().all().unis(datasourcesUni, countUni).asTuple().map(tuple -> {
+            List<DataSource> datasources = tuple.getItem1();
+            Long totalCount = tuple.getItem2();
 
             // Determine next page token
             String nextPageToken = "";
-            if (datasources.size() > pageSize) {
-                datasources = datasources.subList(0, pageSize);
-                nextPageToken = String.valueOf(offset + pageSize);
+            List<DataSource> finalDatasources = datasources;
+            if (datasources.size() > finalPageSize) {
+                finalDatasources = datasources.subList(0, finalPageSize);
+                nextPageToken = String.valueOf(finalOffset + finalPageSize);
             }
-
-            // Get total count
-            long totalCount = dataSourceRepository.countDataSources(
-                request.getAccountId(),
-                request.getIncludeInactive()
-            );
 
             ListDataSourcesResponse.Builder builder = ListDataSourcesResponse.newBuilder()
                 .setTotalCount((int) Math.min(totalCount, Integer.MAX_VALUE));
@@ -326,12 +330,12 @@ public class DataSourceAdminServiceImpl extends MutinyDataSourceAdminServiceGrpc
                 builder.setNextPageToken(nextPageToken);
             }
 
-            for (DataSource ds : datasources) {
+            for (DataSource ds : finalDatasources) {
                 builder.addDatasources(toProtoDataSource(ds));
             }
 
             return builder.build();
-        }).runSubscriptionOn(Infrastructure.getDefaultWorkerPool());
+        });
     }
 
     /**
@@ -342,28 +346,25 @@ public class DataSourceAdminServiceImpl extends MutinyDataSourceAdminServiceGrpc
      */
     @Override
     public Uni<SetDataSourceStatusResponse> setDataSourceStatus(SetDataSourceStatusRequest request) {
-        return Uni.createFrom().item(() -> {
-            LOG.infof("Setting datasource %s status to active=%s",
-                request.getDatasourceId(), request.getActive());
+        LOG.infof("Setting datasource %s status to active=%s",
+            request.getDatasourceId(), request.getActive());
 
-            boolean success = dataSourceRepository.setDataSourceStatus(
+        return dataSourceRepository.setDataSourceStatus(
                 request.getDatasourceId(),
                 request.getActive(),
-                request.getReason()
-            );
-
-            if (!success) {
+                request.getReason())
+            .map(success -> {
+                if (!success) {
+                    return SetDataSourceStatusResponse.newBuilder()
+                        .setSuccess(false)
+                        .setMessage("DataSource not found: " + request.getDatasourceId())
+                        .build();
+                }
                 return SetDataSourceStatusResponse.newBuilder()
-                    .setSuccess(false)
-                    .setMessage("DataSource not found: " + request.getDatasourceId())
+                    .setSuccess(true)
+                    .setMessage("DataSource status updated successfully")
                     .build();
-            }
-
-            return SetDataSourceStatusResponse.newBuilder()
-                .setSuccess(true)
-                .setMessage("DataSource status updated successfully")
-                .build();
-        }).runSubscriptionOn(Infrastructure.getDefaultWorkerPool());
+            });
     }
 
     /**
@@ -374,24 +375,22 @@ public class DataSourceAdminServiceImpl extends MutinyDataSourceAdminServiceGrpc
      */
     @Override
     public Uni<DeleteDataSourceResponse> deleteDataSource(DeleteDataSourceRequest request) {
-        return Uni.createFrom().item(() -> {
-            LOG.infof("Deleting datasource: %s", request.getDatasourceId());
+        LOG.infof("Deleting datasource: %s", request.getDatasourceId());
 
-            String reason = "DataSource deleted via API";
-            boolean success = dataSourceRepository.deleteDataSource(request.getDatasourceId(), reason);
-
-            if (!success) {
+        String reason = "DataSource deleted via API";
+        return dataSourceRepository.deleteDataSource(request.getDatasourceId(), reason)
+            .map(success -> {
+                if (!success) {
+                    return DeleteDataSourceResponse.newBuilder()
+                        .setSuccess(false)
+                        .setMessage("DataSource not found: " + request.getDatasourceId())
+                        .build();
+                }
                 return DeleteDataSourceResponse.newBuilder()
-                    .setSuccess(false)
-                    .setMessage("DataSource not found: " + request.getDatasourceId())
+                    .setSuccess(true)
+                    .setMessage("DataSource deleted successfully")
                     .build();
-            }
-
-            return DeleteDataSourceResponse.newBuilder()
-                .setSuccess(true)
-                .setMessage("DataSource deleted successfully")
-                .build();
-        }).runSubscriptionOn(Infrastructure.getDefaultWorkerPool());
+            });
     }
 
     /**
@@ -402,29 +401,28 @@ public class DataSourceAdminServiceImpl extends MutinyDataSourceAdminServiceGrpc
      */
     @Override
     public Uni<RotateApiKeyResponse> rotateApiKey(RotateApiKeyRequest request) {
-        return Uni.createFrom().item(() -> {
-            LOG.infof("Rotating API key for datasource: %s", request.getDatasourceId());
+        LOG.infof("Rotating API key for datasource: %s", request.getDatasourceId());
 
-            // Generate new API key
-            String newApiKey = apiKeyUtil.generateApiKey();
-            String newApiKeyHash = apiKeyUtil.hashApiKey(newApiKey);
+        // Generate new API key
+        String newApiKey = apiKeyUtil.generateApiKey();
+        String newApiKeyHash = apiKeyUtil.hashApiKey(newApiKey);
 
-            boolean success = dataSourceRepository.rotateApiKey(request.getDatasourceId(), newApiKeyHash);
+        return dataSourceRepository.rotateApiKey(request.getDatasourceId(), newApiKeyHash)
+            .flatMap(success -> {
+                if (!success) {
+                    return Uni.createFrom().failure(Status.NOT_FOUND
+                        .withDescription("DataSource not found: " + request.getDatasourceId())
+                        .asRuntimeException());
+                }
 
-            if (!success) {
-                throw Status.NOT_FOUND
-                    .withDescription("DataSource not found: " + request.getDatasourceId())
-                    .asRuntimeException();
-            }
+                LOG.infof("Rotated API key for datasource %s", request.getDatasourceId());
 
-            LOG.infof("Rotated API key for datasource %s", request.getDatasourceId());
-
-            return RotateApiKeyResponse.newBuilder()
-                .setSuccess(true)
-                .setNewApiKey(newApiKey)  // Return plaintext key ONCE
-                .setMessage("API key rotated successfully")
-                .build();
-        }).runSubscriptionOn(Infrastructure.getDefaultWorkerPool());
+                return Uni.createFrom().item(RotateApiKeyResponse.newBuilder()
+                    .setSuccess(true)
+                    .setNewApiKey(newApiKey)  // Return plaintext key ONCE
+                    .setMessage("API key rotated successfully")
+                    .build());
+            });
     }
 
     /**
@@ -450,20 +448,19 @@ public class DataSourceAdminServiceImpl extends MutinyDataSourceAdminServiceGrpc
      */
     @Override
     public Uni<ListConnectorTypesResponse> listConnectorTypes(ListConnectorTypesRequest request) {
-        return Uni.createFrom().item(() -> {
-            LOG.debugf("Listing connector types");
+        LOG.debugf("Listing connector types");
 
-            List<Connector> connectors = dataSourceRepository.listConnectorTypes();
+        return dataSourceRepository.listConnectorTypes()
+            .map(connectors -> {
+                ListConnectorTypesResponse.Builder builder = ListConnectorTypesResponse.newBuilder()
+                    .setTotalCount(connectors.size());
 
-            ListConnectorTypesResponse.Builder builder = ListConnectorTypesResponse.newBuilder()
-                .setTotalCount(connectors.size());
+                for (Connector c : connectors) {
+                    builder.addConnectors(toProtoConnector(c));
+                }
 
-            for (Connector c : connectors) {
-                builder.addConnectors(toProtoConnector(c));
-            }
-
-            return builder.build();
-        }).runSubscriptionOn(Infrastructure.getDefaultWorkerPool());
+                return builder.build();
+            });
     }
 
     /**
@@ -474,20 +471,19 @@ public class DataSourceAdminServiceImpl extends MutinyDataSourceAdminServiceGrpc
      */
     @Override
     public Uni<GetConnectorTypeResponse> getConnectorType(GetConnectorTypeRequest request) {
-        return Uni.createFrom().item(() -> {
-            LOG.debugf("Getting connector type: %s", request.getConnectorId());
+        LOG.debugf("Getting connector type: %s", request.getConnectorId());
 
-            Connector connector = dataSourceRepository.findConnectorById(request.getConnectorId());
-            if (connector == null) {
-                throw Status.NOT_FOUND
-                    .withDescription("Connector type not found: " + request.getConnectorId())
-                    .asRuntimeException();
-            }
-
-            return GetConnectorTypeResponse.newBuilder()
-                .setConnector(toProtoConnector(connector))
-                .build();
-        }).runSubscriptionOn(Infrastructure.getDefaultWorkerPool());
+        return dataSourceRepository.findConnectorById(request.getConnectorId())
+            .flatMap(connector -> {
+                if (connector == null) {
+                    return Uni.createFrom().failure(Status.NOT_FOUND
+                        .withDescription("Connector type not found: " + request.getConnectorId())
+                        .asRuntimeException());
+                }
+                return Uni.createFrom().item(GetConnectorTypeResponse.newBuilder()
+                    .setConnector(toProtoConnector(connector))
+                    .build());
+            });
     }
 
     // ========================================================================
@@ -552,12 +548,11 @@ public class DataSourceAdminServiceImpl extends MutinyDataSourceAdminServiceGrpc
      * Convert DataSource entity to DataSourceConfig proto.
      * Lightweight config for runtime validation responses.
      * Includes merged Tier 1 configuration (Connector defaults + DataSource overrides).
+     * 
+     * @param ds DataSource entity
+     * @param connector Connector entity (already loaded)
      */
-    private DataSourceConfig toProtoDataSourceConfig(DataSource ds) {
-        // Load connector if not already loaded (relationship is EAGER, but be safe)
-        Connector connector = ds.connector != null ? ds.connector 
-            : dataSourceRepository.findConnectorById(ds.connectorId);
-
+    private DataSourceConfig toProtoDataSourceConfig(DataSource ds, Connector connector) {
         // Merge Tier 1 configuration
         DataSourceConfig.ConnectorGlobalConfig mergedConfig = configMergingService.mergeTier1Config(connector, ds);
 
@@ -590,10 +585,12 @@ public class DataSourceAdminServiceImpl extends MutinyDataSourceAdminServiceGrpc
      */
     private ai.pipestream.connector.intake.v1.Connector toProtoConnector(Connector c) {
         ManagementType mgmtType = ManagementType.MANAGEMENT_TYPE_UNSPECIFIED;
-        if ("MANAGED".equalsIgnoreCase(c.managementType)) {
-            mgmtType = ManagementType.MANAGEMENT_TYPE_MANAGED;
-        } else if ("UNMANAGED".equalsIgnoreCase(c.managementType)) {
-            mgmtType = ManagementType.MANAGEMENT_TYPE_UNMANAGED;
+        if (c.managementType != null) {
+            if ("MANAGED".equalsIgnoreCase(c.managementType)) {
+                mgmtType = ManagementType.MANAGEMENT_TYPE_MANAGED;
+            } else if ("UNMANAGED".equalsIgnoreCase(c.managementType)) {
+                mgmtType = ManagementType.MANAGEMENT_TYPE_UNMANAGED;
+            }
         }
 
         ai.pipestream.connector.intake.v1.Connector.Builder builder =
