@@ -90,7 +90,7 @@ services:
       - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:9094
       # Docker bridge gateway: 172.17.0.1 (Linux) or host.docker.internal (Mac/Windows)
       # Default to 172.17.0.1 for Linux/DinD environments
-      - --advertise-kafka-addr internal://kafka-test:9092,external://${DOCKER_GATEWAY_HOST:-172.17.0.1}:9095
+      - --advertise-kafka-addr internal://kafka-test:9092,external://${DOCKER_GATEWAY_HOST:-localhost}:9095
     ports:
       - "9095:9094"     # External port for localhost access
     labels:
