@@ -1,6 +1,8 @@
 # ---> Java
 # Compiled class file
 *.class
+.cursor
+
 
 # Log file
 *.log

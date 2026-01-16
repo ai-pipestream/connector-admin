@@ -19,7 +19,7 @@ import ai.pipestream.connector.intake.v1.ListConnectorTypesRequest;
 import ai.pipestream.connector.intake.v1.ListConnectorTypesResponse;
 import ai.pipestream.connector.intake.v1.ListDataSourcesRequest;
 import ai.pipestream.connector.intake.v1.ListDataSourcesResponse;
-import ai.pipestream.connector.intake.v1.ManagementType;
+import ai.pipestream.connector.v1.ManagementType; // CHANGED
 import ai.pipestream.connector.intake.v1.MutinyDataSourceAdminServiceGrpc;
 import ai.pipestream.connector.intake.v1.RotateApiKeyRequest;
 import ai.pipestream.connector.intake.v1.RotateApiKeyResponse;
@@ -583,18 +583,18 @@ public class DataSourceAdminServiceImpl extends MutinyDataSourceAdminServiceGrpc
     /**
      * Convert Connector entity to proto Connector.
      */
-    private ai.pipestream.connector.intake.v1.Connector toProtoConnector(Connector c) {
-        ManagementType mgmtType = ManagementType.MANAGEMENT_TYPE_UNSPECIFIED;
+    private ai.pipestream.connector.v1.Connector toProtoConnector(Connector c) {
+        ai.pipestream.connector.v1.ManagementType mgmtType = ai.pipestream.connector.v1.ManagementType.MANAGEMENT_TYPE_UNSPECIFIED;
         if (c.managementType != null) {
             if ("MANAGED".equalsIgnoreCase(c.managementType)) {
-                mgmtType = ManagementType.MANAGEMENT_TYPE_MANAGED;
+                mgmtType = ai.pipestream.connector.v1.ManagementType.MANAGEMENT_TYPE_MANAGED;
             } else if ("UNMANAGED".equalsIgnoreCase(c.managementType)) {
-                mgmtType = ManagementType.MANAGEMENT_TYPE_UNMANAGED;
+                mgmtType = ai.pipestream.connector.v1.ManagementType.MANAGEMENT_TYPE_UNMANAGED;
             }
         }
 
-        ai.pipestream.connector.intake.v1.Connector.Builder builder =
-            ai.pipestream.connector.intake.v1.Connector.newBuilder()
+        ai.pipestream.connector.v1.Connector.Builder builder =
+            ai.pipestream.connector.v1.Connector.newBuilder()
                 .setConnectorId(c.connectorId)
                 .setConnectorType(c.connectorType)
                 .setName(c.name)

@@ -34,6 +34,7 @@ pipestreamProtos {
     modules {
         // Just register module names - workspace mode handles dependencies automatically
         register("common")
+        register("connector-types")
         register("intake")
         register("admin")
     }
@@ -104,6 +105,7 @@ dependencies {
     integrationTestImplementation 'io.grpc:grpc-stub'
 }
 
+
 group 'ai.pipestream'
 version "${scmVersion.version}"
 
@@ -118,7 +120,7 @@ java {
 test {
     systemProperty "java.util.logging.manager", "org.jboss.logmanager.LogManager"
 }
-
+    
 compileJava {
     options.encoding = 'UTF-8'
     options.compilerArgs << '-parameters'
