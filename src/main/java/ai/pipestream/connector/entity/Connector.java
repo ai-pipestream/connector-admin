@@ -118,6 +118,7 @@ public class Connector extends PanacheEntityBase {
     /**
      * Tags for categorizing connector types.
      */
+    @JdbcTypeCode(SqlTypes.ARRAY)
     @Column(name = "tags", columnDefinition = "TEXT[]")
     public String[] tags;
 
