@@ -645,8 +645,8 @@ public class DataSourceAdminServiceImpl extends MutinyDataSourceAdminServiceGrpc
         if (c.documentationUrl != null) {
             builder.setDocumentationUrl(c.documentationUrl);
         }
-        if (c.tags != null && c.tags.length > 0) {
-            builder.addAllTags(java.util.List.of(c.tags));
+        if (c.tags != null && !c.tags.isEmpty()) {
+            builder.addAllTags(c.tags);
         }
 
         return builder.build();

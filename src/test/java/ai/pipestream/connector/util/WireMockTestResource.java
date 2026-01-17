@@ -34,7 +34,7 @@ public class WireMockTestResource implements QuarkusTestResourceLifecycleManager
         // Use configurable gRPC port, defaulting to 50052
         int grpcPort = Integer.parseInt(System.getProperty("wiremock.grpc.port", "50052"));
         //noinspection resource
-                wireMockContainer = new GenericContainer<>(DockerImageName.parse("docker.io/pipestreamai/pipestream-wiremock-server:0.1.28"))
+        wireMockContainer = new GenericContainer<>(DockerImageName.parse("docker.io/pipestreamai/pipestream-wiremock-server:0.1.29"))
                 .withExposedPorts(8080, grpcPort)
                 .waitingFor(Wait.forLogMessage(".*Direct Streaming gRPC Server started.*", 1))
                 // Configure additional test accounts via environment variables

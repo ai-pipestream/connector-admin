@@ -244,9 +244,9 @@ public class ConnectorRegistrationServiceImpl extends MutinyConnectorRegistratio
             defaultCustomConfigJson = structToJson(request.getDefaultCustomConfig());
         }
 
-        String[] tags = null;
+        List<String> tags = null;
         if (request.getTagsCount() > 0) {
-            tags = request.getTagsList().toArray(new String[0]);
+            tags = request.getTagsList();
         }
 
         return connectorRegistrationRepository.updateConnectorDefaults(
@@ -360,8 +360,8 @@ public class ConnectorRegistrationServiceImpl extends MutinyConnectorRegistratio
         if (c.documentationUrl != null) {
             builder.setDocumentationUrl(c.documentationUrl);
         }
-        if (c.tags != null && c.tags.length > 0) {
-            builder.addAllTags(List.of(c.tags));
+        if (c.tags != null && !c.tags.isEmpty()) {
+            builder.addAllTags(c.tags);
         }
 
         return builder.build();
