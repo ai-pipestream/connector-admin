@@ -93,6 +93,7 @@ dependencies {
     implementation 'ai.pipestream:pipestream-service-registration'
 
     // Test dependencies
+    testImplementation platform("ai.pipestream:pipestream-bom:${pipestreamBomVersion}")
     testImplementation 'io.quarkus:quarkus-junit5'
     testImplementation 'io.quarkus:quarkus-test-hibernate-reactive-panache'
     testImplementation 'io.quarkus:quarkus-test-vertx'
