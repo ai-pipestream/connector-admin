@@ -91,6 +91,7 @@ dependencies {
     // removed legacy stubs: implementation libs.pipestream.grpc.stubs
     implementation 'ai.pipestream:quarkus-dynamic-grpc'
     implementation 'ai.pipestream:pipestream-service-registration'
+    implementation 'ai.pipestream:pipestream-server'
 
     // Test dependencies
     testImplementation platform("ai.pipestream:pipestream-bom:${pipestreamBomVersion}")
@@ -99,7 +100,7 @@ dependencies {
     testImplementation 'io.quarkus:quarkus-test-vertx'
     testImplementation libs.smallrye.reactive.messaging.in.memory
     testImplementation libs.awaitility
-    testImplementation(testFixtures("ai.pipestream:pipestream-test-support:${pipestreamBomVersion}"))
+    testImplementation("ai.pipestream:pipestream-test-support:${pipestreamBomVersion}")
     // Testcontainers - version managed by pipestream-bom
     testImplementation 'org.testcontainers:testcontainers'
     testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
@@ -122,7 +123,6 @@ java {
 
 test {
     systemProperty "java.util.logging.manager", "org.jboss.logmanager.LogManager"
-    systemProperty "pipestream.wiremock.image", "docker.io/pipestreamai/pipestream-wiremock-server:0.1.30"
 }
 
 compileJava {
