@@ -41,7 +41,7 @@ public class DataSourceRepository {
     /**
      * Generate a deterministic datasource ID from account and connector.
      * <p>
-     * datasourceId = UUID.nameUUIDFromBytes((accountId + connectorId).getBytes(UTF_8))
+     * datasourceId = UUID.nameUUIDFromBytes((accountId + ":" + connectorId).getBytes(UTF_8))
      * <p>
      * This is a pure function (no database access) so it's synchronous.
      *
@@ -50,7 +50,7 @@ public class DataSourceRepository {
      * @return Deterministic UUID string
      */
     public String generateDatasourceId(String accountId, String connectorId) {
-        String input = accountId + connectorId;
+        String input = accountId + ":" + connectorId;
         return UUID.nameUUIDFromBytes(input.getBytes(StandardCharsets.UTF_8)).toString();
     }
 

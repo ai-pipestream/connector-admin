@@ -60,6 +60,27 @@ public class DataSourceRepositoryTest {
     }
 
     @Test
+    void testGenerateDatasourceId_UsesColonSeparator() {
+        // Test that the ID generation uses accountId + ":" + connectorId as specified
+        String accountId = "test-account";
+        String connectorId = "test-connector";
+
+        String generatedId = repository.generateDatasourceId(accountId, connectorId);
+
+        // Manually compute what the ID should be with colon separator
+        String expectedInput = accountId + ":" + connectorId;
+        String expectedId = UUID.nameUUIDFromBytes(expectedInput.getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();
+
+        // Verify the generated ID matches the expected ID (with colon separator)
+        assertEquals(expectedId, generatedId);
+
+        // Also verify it's different from ID without colon separator
+        String wrongInput = accountId + connectorId; // no colon
+        String wrongId = UUID.nameUUIDFromBytes(wrongInput.getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();
+        assertNotEquals(wrongId, generatedId);
+    }
+
+    @Test
     @RunOnVertxContext
     void testCreateDataSource_Success(UniAsserter asserter) {
         String accountId = "test-account-" + System.currentTimeMillis();
