@@ -10,20 +10,13 @@ rootProject.name = 'connector-admin-service'
 dependencyResolutionManagement {
     versionCatalogs {
         libs {
-            from("ai.pipestream:pipestream-bom-catalog:0.7.18")
+            from("ai.pipestream:pipestream-bom-catalog:0.7.20-SNAPSHOT")
         }
     }
 
     repositories {
         // Prefer Maven Central but allow locally published releases for development
-        mavenLocal {
-            mavenContent {
-                releasesOnly()
-            }
-            content {
-                includeGroupByRegex "ai\\.pipestream(\\..*)?"
-            }
-        }
+        mavenLocal()
 
         mavenCentral()
 
