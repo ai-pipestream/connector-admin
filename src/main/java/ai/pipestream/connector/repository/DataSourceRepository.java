@@ -28,6 +28,8 @@ import java.util.UUID;
  * <strong>Reactive Implementation:</strong>
  * All methods return {@link Uni} for fully non-blocking database operations using
  * Hibernate Reactive Panache. Transactions are handled via {@link Panache#withTransaction(java.util.function.Supplier)}.
+ * Inside a {@code withTransaction} block, use the same session for find and persist (e.g. {@code DataSource.findById(id)}
+ * rather than calling {@code findByDatasourceId(id)}, which would open a nested session and cause session-cleanup warnings).
  */
 @ApplicationScoped
 public class DataSourceRepository {
@@ -205,7 +207,7 @@ public class DataSourceRepository {
     public Uni<DataSource> updateDataSource(String datasourceId, String newName,
                                            String newMetadata, String newDriveName) {
         return Panache.withTransaction(() ->
-            findByDatasourceId(datasourceId)
+            DataSource.<DataSource>findById(datasourceId)
                 .flatMap(datasource -> {
                     if (datasource == null) {
                         LOG.warnf("Cannot update datasource - not found: %s", datasourceId);
@@ -251,7 +253,7 @@ public class DataSourceRepository {
      */
     public Uni<Boolean> setDataSourceStatus(String datasourceId, boolean active, String reason) {
         return Panache.withTransaction(() ->
-            findByDatasourceId(datasourceId)
+            DataSource.<DataSource>findById(datasourceId)
                 .flatMap(datasource -> {
                     if (datasource == null) {
                         LOG.warnf("Cannot set status - datasource not found: %s", datasourceId);
@@ -284,7 +286,7 @@ public class DataSourceRepository {
      */
     public Uni<Boolean> deleteDataSource(String datasourceId, String reason) {
         return Panache.withTransaction(() ->
-            findByDatasourceId(datasourceId)
+            DataSource.<DataSource>findById(datasourceId)
                 .flatMap(datasource -> {
                     if (datasource == null) {
                         LOG.warnf("Cannot delete datasource - not found: %s", datasourceId);
@@ -311,7 +313,7 @@ public class DataSourceRepository {
      */
     public Uni<Boolean> rotateApiKey(String datasourceId, String newApiKeyHash) {
         return Panache.withTransaction(() ->
-            findByDatasourceId(datasourceId)
+            DataSource.<DataSource>findById(datasourceId)
                 .flatMap(datasource -> {
                     if (datasource == null) {
                         LOG.warnf("Cannot rotate API key - datasource not found: %s", datasourceId);

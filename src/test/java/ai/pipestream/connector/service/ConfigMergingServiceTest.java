@@ -208,8 +208,12 @@ public class ConfigMergingServiceTest {
         assertEquals(true, merged.getPersistenceConfig().getPersistPipedoc());
     }
 
+    /**
+     * When global_config_proto contains invalid/corrupt bytes, the service throws.
+     * Invalid proto in the DB is a bug (wrong or corrupt data was written); we fail fast instead of silently falling back.
+     */
     @Test
-    void testMergeTier1Config_InvalidProtoHandling() {
+    void testMergeTier1Config_InvalidProtoThrows() {
         Connector connector = new Connector();
         connector.connectorId = "test-connector";
         connector.defaultPersistPipedoc = true;
@@ -219,14 +223,11 @@ public class ConfigMergingServiceTest {
         datasource.connectorId = connector.connectorId;
         datasource.globalConfigProto = new byte[]{1, 2, 3}; // Invalid proto bytes
 
-        // Should not throw exception, should use connector defaults
-        DataSourceConfig.ConnectorGlobalConfig merged = 
-            configMergingService.mergeTier1Config(connector, datasource);
+        IllegalStateException thrown = assertThrows(IllegalStateException.class, () ->
+            configMergingService.mergeTier1Config(connector, datasource));
 
-        assertNotNull(merged);
-        // Should fall back to connector defaults (not proto)
-        assertTrue(merged.hasPersistenceConfig());
-        assertEquals(true, merged.getPersistenceConfig().getPersistPipedoc()); // From connector
+        assertTrue(thrown.getMessage().contains("test-datasource"));
+        assertTrue(thrown.getCause() instanceof com.google.protobuf.InvalidProtocolBufferException);
     }
 }
 

@@ -134,7 +134,7 @@ public class DataSourceRepositoryTest {
             assertNotNull(created);
             String datasourceId = created.datasourceId;
             // Now find it by ID
-            asserter.assertThat(() -> Panache.withSession(() -> repository.findByDatasourceId(datasourceId)), found -> {
+            asserter.assertThat(() -> repository.findByDatasourceId(datasourceId), found -> {
                 assertNotNull(found);
                 assertEquals(datasourceId, found.datasourceId);
                 assertEquals(accountId, found.accountId);
@@ -151,7 +151,7 @@ public class DataSourceRepositoryTest {
             accountId, TEST_CONNECTOR_ID, "Test", "hash", "drive", null
         ).replaceWithVoid()));
 
-        asserter.assertThat(() -> Panache.withSession(() -> repository.findByAccountAndConnector(accountId, TEST_CONNECTOR_ID)), found -> {
+        asserter.assertThat(() -> repository.findByAccountAndConnector(accountId, TEST_CONNECTOR_ID), found -> {
             assertNotNull(found);
             assertEquals(accountId, found.accountId);
             assertEquals(TEST_CONNECTOR_ID, found.connectorId);
@@ -177,9 +177,7 @@ public class DataSourceRepositoryTest {
         ));
 
         // List all datasources for account
-        asserter.assertThat(() -> Panache.withSession(() -> 
-            repository.listByAccount(accountId, false, 0, 0)
-        ), list -> {
+        asserter.assertThat(() -> repository.listByAccount(accountId, false, 0, 0), list -> {
             assertEquals(2, list.size(), "Should find 2 datasources for account");
         });
     }
@@ -203,9 +201,7 @@ public class DataSourceRepositoryTest {
             });
 
             // Verify disabled
-            asserter.assertThat(() -> Panache.withSession(() -> 
-                repository.findByDatasourceId(datasourceId)
-            ), updated -> {
+            asserter.assertThat(() -> repository.findByDatasourceId(datasourceId), updated -> {
                 assertFalse(updated.active);
                 assertEquals("test_disable", updated.statusReason);
             });
@@ -218,9 +214,7 @@ public class DataSourceRepositoryTest {
             });
 
             // Verify enabled
-            asserter.assertThat(() -> Panache.withSession(() -> 
-                repository.findByDatasourceId(datasourceId)
-            ), updated -> {
+            asserter.assertThat(() -> repository.findByDatasourceId(datasourceId), updated -> {
                 assertTrue(updated.active);
             });
         });
@@ -246,9 +240,7 @@ public class DataSourceRepositoryTest {
             });
 
             // Verify rotation
-            asserter.assertThat(() -> Panache.withSession(() -> 
-                repository.findByDatasourceId(datasourceId)
-            ), updated -> {
+            asserter.assertThat(() -> repository.findByDatasourceId(datasourceId), updated -> {
                 assertEquals(newHash, updated.apiKeyHash);
                 assertNotNull(updated.lastRotatedAt);
             });
@@ -274,9 +266,7 @@ public class DataSourceRepositoryTest {
             });
 
             // Verify soft delete
-            asserter.assertThat(() -> Panache.withSession(() -> 
-                repository.findByDatasourceId(datasourceId)
-            ), updated -> {
+            asserter.assertThat(() -> repository.findByDatasourceId(datasourceId), updated -> {
                 assertFalse(updated.active);
                 assertEquals("test_deletion", updated.statusReason);
             });
@@ -308,7 +298,7 @@ public class DataSourceRepositoryTest {
     @Test
     @RunOnVertxContext
     void testListConnectorTypes(UniAsserter asserter) {
-        asserter.assertThat(() -> Panache.withSession(() -> repository.listConnectorTypes()), connectors -> {
+        asserter.assertThat(() -> repository.listConnectorTypes(), connectors -> {
             // Should have at least the pre-seeded connectors
             assertTrue(connectors.size() >= 2);
             // Check for S3 connector
@@ -321,7 +311,7 @@ public class DataSourceRepositoryTest {
     @Test
     @RunOnVertxContext
     void testFindConnectorById(UniAsserter asserter) {
-        asserter.assertThat(() -> Panache.withSession(() -> repository.findConnectorById(TEST_CONNECTOR_ID)), connector -> {
+        asserter.assertThat(() -> repository.findConnectorById(TEST_CONNECTOR_ID), connector -> {
             assertNotNull(connector);
             assertEquals("s3", connector.connectorType);
             assertEquals("UNMANAGED", connector.managementType);
@@ -331,7 +321,7 @@ public class DataSourceRepositoryTest {
     @Test
     @RunOnVertxContext
     void testFindConnectorByType(UniAsserter asserter) {
-        asserter.assertThat(() -> Panache.withSession(() -> repository.findConnectorByType("s3")), connector -> {
+        asserter.assertThat(() -> repository.findConnectorByType("s3"), connector -> {
             assertNotNull(connector);
             assertEquals(TEST_CONNECTOR_ID, connector.connectorId);
         });
@@ -354,13 +344,13 @@ public class DataSourceRepositoryTest {
         ));
 
         // Count active
-        asserter.assertThat(() -> Panache.withSession(() -> repository.countDataSources(accountId, false)), count -> {
+        asserter.assertThat(() -> repository.countDataSources(accountId, false), count -> {
             assertEquals(2, count);
         });
 
         // Disable one - find it first, then disable
         String[] datasourceIdHolder = new String[1];
-        asserter.assertThat(() -> Panache.withSession(() -> repository.findByAccountAndConnector(accountId, TEST_CONNECTOR_ID)), ds -> {
+        asserter.assertThat(() -> repository.findByAccountAndConnector(accountId, TEST_CONNECTOR_ID), ds -> {
             datasourceIdHolder[0] = ds.datasourceId;
         });
         
@@ -370,12 +360,12 @@ public class DataSourceRepositoryTest {
         ));
 
         // Count active again (should be 1)
-        asserter.assertThat(() -> Panache.withSession(() -> repository.countDataSources(accountId, false)), count -> {
+        asserter.assertThat(() -> repository.countDataSources(accountId, false), count -> {
             assertEquals(1, count);
         });
 
         // Count all (including inactive, should be 2)
-        asserter.assertThat(() -> Panache.withSession(() -> repository.countDataSources(accountId, true)), count -> {
+        asserter.assertThat(() -> repository.countDataSources(accountId, true), count -> {
             assertEquals(2, count);
         });
     }

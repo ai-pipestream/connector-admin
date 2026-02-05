@@ -180,8 +180,11 @@ public class ConfigMergingService {
 
             LOG.debugf("Successfully deserialized and merged global_config_proto for datasource %s", datasource.datasourceId);
         } catch (InvalidProtocolBufferException e) {
-            LOG.errorf(e, "Failed to deserialize global_config_proto for datasource %s", datasource.datasourceId);
-            // Continue with existing merged config - don't fail the request
+            // Invalid bytes in global_config_proto is a data bug: something wrote non-ConnectorGlobalConfig (or corrupt) data.
+            // Fail the request so callers see the error and the writer can be fixed; do not silently fall back.
+            LOG.errorf(e, "Invalid or corrupt global_config_proto for datasource %s", datasource.datasourceId);
+            throw new IllegalStateException(
+                "Invalid global_config_proto for datasource " + datasource.datasourceId + ": " + e.getMessage(), e);
         }
     }
 
