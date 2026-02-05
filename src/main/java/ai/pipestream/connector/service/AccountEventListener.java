@@ -11,6 +11,7 @@ import org.jboss.logging.Logger;
 
 import java.util.List;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * Consumes account lifecycle events and synchronizes datasource status.
@@ -71,6 +72,11 @@ public class AccountEventListener {
      */
     @Incoming("account-events")
     public CompletionStage<Void> handleAccountEvent(AccountEvent event) {
+        if (event == null) {
+            // Deserialization failed (e.g. unknown schema); fail-on-deserialization-failure=false forwards null
+            LOG.debug("Skipping account-events record: deserialization failed (payload null)");
+            return CompletableFuture.completedFuture(null);
+        }
         String accountId = event.getAccountId();
 
         LOG.infof("Received account event: eventId=%s, accountId=%s, operation=%s",
