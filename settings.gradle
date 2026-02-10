@@ -6,10 +6,13 @@ pluginManagement {
 
 rootProject.name = 'connector-admin-service'
 
+def bomVersion = pipestreamBomVersion
+def isSnapshotBuild = bomVersion.endsWith('-SNAPSHOT')
+
 dependencyResolutionManagement {
     versionCatalogs {
         libs {
-            from("ai.pipestream:pipestream-bom-catalog:0.7.21-SNAPSHOT")
+            from("ai.pipestream:pipestream-bom-catalog:${bomVersion}")
         }
     }
 
@@ -19,13 +22,16 @@ dependencyResolutionManagement {
 
         mavenCentral()
 
-        maven {
-            url = uri('https://central.sonatype.com/repository/maven-snapshots/')
-            mavenContent {
-                snapshotsOnly()
-            }
-            content {
-                includeGroupByRegex "ai\\.pipestream(\\..*)?"
+        // Sonatype snapshots — only available for SNAPSHOT builds
+        if (isSnapshotBuild) {
+            maven {
+                url = uri('https://central.sonatype.com/repository/maven-snapshots/')
+                mavenContent {
+                    snapshotsOnly()
+                }
+                content {
+                    includeGroupByRegex "ai\\.pipestream(\\..*)?"
+                }
             }
         }
 
