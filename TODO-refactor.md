@@ -231,14 +231,9 @@ pipestream.registration.registration-service.port=38101
 
 ### 2.3 Quarkus indexing for non-extension deps (CRITICAL)
 
-If you consume CDI/config-mapped beans from libraries that are not Quarkus extensions, add:
+If you consume CDI/config-mapped beans from libraries that are not Quarkus extensions, add `quarkus.index-dependency.*`.
 
-```properties
-quarkus.index-dependency.pipestream-registration.group-id=ai.pipestream
-quarkus.index-dependency.pipestream-registration.artifact-id=pipestream-service-registration
-quarkus.index-dependency.pipestream-dynamic-grpc.group-id=ai.pipestream
-quarkus.index-dependency.pipestream-dynamic-grpc.artifact-id=quarkus-dynamic-grpc
-```
+Note: `pipestream-service-registration` and `quarkus-dynamic-grpc` now register their own index dependencies in their extensions, so per-service config is not required.
 
 ### 2.4 DevServices (Dev profile)
 

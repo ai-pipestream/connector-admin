@@ -244,9 +244,9 @@ public class ConnectorRegistrationServiceImpl extends MutinyConnectorRegistratio
             defaultCustomConfigJson = structToJson(request.getDefaultCustomConfig());
         }
 
-        String[] tags = null;
+        List<String> tags = null;
         if (request.getTagsCount() > 0) {
-            tags = request.getTagsList().toArray(new String[0]);
+            tags = request.getTagsList();
         }
 
         return connectorRegistrationRepository.updateConnectorDefaults(
@@ -311,20 +311,20 @@ public class ConnectorRegistrationServiceImpl extends MutinyConnectorRegistratio
         return builder.build();
     }
 
-    private ai.pipestream.connector.intake.v1.Connector toProtoConnector(Connector c) {
+    private ai.pipestream.connector.v1.Connector toProtoConnector(Connector c) {
         // Reuse DataSourceAdminServiceImpl's mapping behavior by matching fields directly.
-        ai.pipestream.connector.intake.v1.ManagementType mgmtType = 
-            ai.pipestream.connector.intake.v1.ManagementType.MANAGEMENT_TYPE_UNSPECIFIED;
+        ai.pipestream.connector.v1.ManagementType mgmtType = 
+            ai.pipestream.connector.v1.ManagementType.MANAGEMENT_TYPE_UNSPECIFIED;
         if (c.managementType != null) {
             if ("MANAGED".equalsIgnoreCase(c.managementType)) {
-                mgmtType = ai.pipestream.connector.intake.v1.ManagementType.MANAGEMENT_TYPE_MANAGED;
+                mgmtType = ai.pipestream.connector.v1.ManagementType.MANAGEMENT_TYPE_MANAGED;
             } else if ("UNMANAGED".equalsIgnoreCase(c.managementType)) {
-                mgmtType = ai.pipestream.connector.intake.v1.ManagementType.MANAGEMENT_TYPE_UNMANAGED;
+                mgmtType = ai.pipestream.connector.v1.ManagementType.MANAGEMENT_TYPE_UNMANAGED;
             }
         }
         
-        ai.pipestream.connector.intake.v1.Connector.Builder builder =
-            ai.pipestream.connector.intake.v1.Connector.newBuilder()
+        ai.pipestream.connector.v1.Connector.Builder builder =
+            ai.pipestream.connector.v1.Connector.newBuilder()
                 .setConnectorId(c.connectorId)
                 .setConnectorType(c.connectorType)
                 .setName(c.name)
@@ -360,8 +360,8 @@ public class ConnectorRegistrationServiceImpl extends MutinyConnectorRegistratio
         if (c.documentationUrl != null) {
             builder.setDocumentationUrl(c.documentationUrl);
         }
-        if (c.tags != null && c.tags.length > 0) {
-            builder.addAllTags(List.of(c.tags));
+        if (c.tags != null && !c.tags.isEmpty()) {
+            builder.addAllTags(c.tags);
         }
 
         return builder.build();
@@ -398,5 +398,3 @@ public class ConnectorRegistrationServiceImpl extends MutinyConnectorRegistratio
         }
     }
 }
-
-

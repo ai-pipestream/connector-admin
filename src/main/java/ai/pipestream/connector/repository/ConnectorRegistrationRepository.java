@@ -191,7 +191,7 @@ public class ConnectorRegistrationRepository {
                                                   String displayNameOrNull,
                                                   String ownerOrNull,
                                                   String documentationUrlOrNull,
-                                                  String[] tagsOrNull) {
+                                                  List<String> tagsOrNull) {
         return Panache.withTransaction(() ->
             findConnectorById(connectorId)
                 .flatMap(connector -> {

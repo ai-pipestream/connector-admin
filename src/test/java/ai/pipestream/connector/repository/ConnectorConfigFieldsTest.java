@@ -92,7 +92,7 @@ public class ConnectorConfigFieldsTest {
                 connector.displayName = "S3 Connector";
                 connector.owner = "pipestream-team";
                 connector.documentationUrl = "https://docs.example.com/s3";
-                connector.tags = new String[]{"storage", "s3", "aws"};
+                connector.tags = java.util.List.of("storage", "s3", "aws");
                 return connector.<Connector>persist();
             }), updated -> {
                 assertNotNull(updated);
@@ -107,7 +107,7 @@ public class ConnectorConfigFieldsTest {
                 assertEquals("S3 Connector", verified.displayName);
                 assertEquals("pipestream-team", verified.owner);
                 assertEquals("https://docs.example.com/s3", verified.documentationUrl);
-                assertArrayEquals(new String[]{"storage", "s3", "aws"}, verified.tags);
+                assertIterableEquals(java.util.List.of("storage", "s3", "aws"), verified.tags);
             });
         });
     }

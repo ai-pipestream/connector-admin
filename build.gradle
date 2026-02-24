@@ -9,9 +9,12 @@ plugins {
     alias(libs.plugins.nmcp.single)
     alias(libs.plugins.axion.release)
     alias(libs.plugins.proto.toolchain)
+    id 'idea'  // IntelliJ IDEA integration
 }
 
 // Axion-release configuration for automatic versioning
+def isSnapshotBuild = pipestreamBomVersion.endsWith('-SNAPSHOT')
+
 scmVersion {
     tag {
         prefix = 'v'
@@ -19,7 +22,8 @@ scmVersion {
     checks {
         uncommittedChanges = false
         aheadOfRemote = false
-        snapshotDependencies = false
+        // Allow SNAPSHOT dependencies only for SNAPSHOT builds; release builds are strict
+        snapshotDependencies = !isSnapshotBuild
     }
 }
 
@@ -34,6 +38,7 @@ pipestreamProtos {
     modules {
         // Just register module names - workspace mode handles dependencies automatically
         register("common")
+        register("connector-types")
         register("intake")
         register("admin")
     }
@@ -42,6 +47,19 @@ pipestreamProtos {
 repositories {
     mavenLocal()
     mavenCentral()
+
+    // Sonatype snapshots — only available for SNAPSHOT builds
+    if (isSnapshotBuild) {
+        maven {
+            url = uri('https://central.sonatype.com/repository/maven-snapshots/')
+            mavenContent {
+                snapshotsOnly()
+            }
+            content {
+                includeGroupByRegex "ai\\.pipestream(\\..*)?"
+            }
+        }
+    }
 }
 
 dependencies {
@@ -60,12 +78,9 @@ dependencies {
     implementation 'io.quarkus:quarkus-reactive-pg-client'
     // JDBC driver still required for Flyway (Flyway doesn't support reactive drivers)
     implementation 'io.quarkus:quarkus-jdbc-postgresql'
-    implementation 'io.quarkus:quarkus-rest'
-    implementation 'io.quarkus:quarkus-smallrye-health'
     implementation 'io.quarkus:quarkus-arc'
     implementation 'io.quarkus:quarkus-flyway'
     implementation 'org.flywaydb:flyway-database-postgresql'
-    implementation 'io.quarkus:quarkus-smallrye-openapi'
     implementation libs.quarkus.grpc
     implementation 'io.quarkus:quarkus-smallrye-stork'
 
@@ -89,13 +104,16 @@ dependencies {
     // removed legacy stubs: implementation libs.pipestream.grpc.stubs
     implementation 'ai.pipestream:quarkus-dynamic-grpc'
     implementation 'ai.pipestream:pipestream-service-registration'
+    implementation 'ai.pipestream:pipestream-server'
 
     // Test dependencies
+    testImplementation platform("ai.pipestream:pipestream-bom:${pipestreamBomVersion}")
     testImplementation 'io.quarkus:quarkus-junit5'
     testImplementation 'io.quarkus:quarkus-test-hibernate-reactive-panache'
     testImplementation 'io.quarkus:quarkus-test-vertx'
     testImplementation libs.smallrye.reactive.messaging.in.memory
     testImplementation libs.awaitility
+    testImplementation("ai.pipestream:pipestream-test-support:${pipestreamBomVersion}")
     // Testcontainers - version managed by pipestream-bom
     testImplementation 'org.testcontainers:testcontainers'
     testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
@@ -103,6 +121,7 @@ dependencies {
     integrationTestImplementation 'io.grpc:grpc-protobuf'
     integrationTestImplementation 'io.grpc:grpc-stub'
 }
+
 
 group 'ai.pipestream'
 version "${scmVersion.version}"

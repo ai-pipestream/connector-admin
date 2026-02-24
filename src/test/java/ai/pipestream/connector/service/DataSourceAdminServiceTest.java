@@ -3,6 +3,7 @@ package ai.pipestream.connector.service;
 import ai.pipestream.connector.entity.Connector;
 import ai.pipestream.connector.entity.DataSource;
 import ai.pipestream.connector.intake.v1.*;
+import ai.pipestream.connector.v1.ManagementType;
 import ai.pipestream.data.v1.HydrationConfig;
 import com.google.protobuf.Struct;
 import io.quarkus.grpc.GrpcClient;
