@@ -12,7 +12,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # Configuration
-GRPC_HOST="localhost:38107"
+GRPC_HOST="localhost:18107"
 SERVICE="ai.pipestream.connector.intake.v1.DataSourceAdminService"
 TEST_PREFIX="e2e-test-$(date +%s)"
 
@@ -21,11 +21,11 @@ echo -e "${GREEN}DataSource Admin Service E2E Test${NC}"
 echo -e "${GREEN}========================================${NC}"
 echo ""
 
-# Step 1: Create account for testing (requires account-manager running on 38105)
+# Step 1: Create account for testing (requires account-manager running on 18105)
 echo -e "${YELLOW}Step 1: Creating test account...${NC}"
 ACCOUNT_ID="${TEST_PREFIX}-account"
 grpcurl -plaintext -d "{\"account_id\":\"${ACCOUNT_ID}\",\"name\":\"Test Account\",\"description\":\"E2E test account\"}" \
-  localhost:38105 io.pipeline.repository.account.AccountService/CreateAccount | jq .
+  localhost:18105 io.pipeline.repository.account.AccountService/CreateAccount | jq .
 echo -e "${GREEN}✓ Account created${NC}"
 echo ""
 

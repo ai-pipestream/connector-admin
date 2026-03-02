@@ -1,8 +1,8 @@
 #!/bin/bash
 # grpcurl test scripts for DataSourceAdminService
-# Run these against a running connector-admin-service (default: localhost:38107)
+# Run these against a running connector-admin-service (default: localhost:18107)
 
-HOST="${GRPC_HOST:-localhost:38107}"
+HOST="${GRPC_HOST:-localhost:18107}"
 SERVICE="ai.pipestream.connector.intake.v1.DataSourceAdminService"
 
 # Pre-seeded connector IDs

@@ -45,6 +45,7 @@ pipestreamProtos {
 }
 
 repositories {
+        mavenLocal()
     mavenLocal()
     mavenCentral()
 
@@ -227,6 +228,7 @@ publishing {
     }
 
     repositories {
+        mavenLocal()
         // Publish to Maven Local for development
         mavenLocal()
 

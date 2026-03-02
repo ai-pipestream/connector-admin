@@ -1,6 +1,6 @@
 # grpcurl Examples for DataSourceAdminService
 
-All commands assume connector-admin-service is running on `localhost:38107`.
+All commands assume connector-admin-service is running on `localhost:18107`.
 
 ## Pre-seeded Connector IDs
 - **S3**: `a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11`
@@ -8,12 +8,12 @@ All commands assume connector-admin-service is running on `localhost:38107`.
 
 ## List Services
 ```bash
-grpcurl -plaintext localhost:38107 list
+grpcurl -plaintext localhost:18107 list
 ```
 
 ## Describe Service
 ```bash
-grpcurl -plaintext localhost:38107 describe ai.pipestream.connector.intake.v1.DataSourceAdminService
+grpcurl -plaintext localhost:18107 describe ai.pipestream.connector.intake.v1.DataSourceAdminService
 ```
 
 ---
@@ -22,14 +22,14 @@ grpcurl -plaintext localhost:38107 describe ai.pipestream.connector.intake.v1.Da
 
 ### List All Connector Types
 ```bash
-grpcurl -plaintext localhost:38107 \
+grpcurl -plaintext localhost:18107 \
   ai.pipestream.connector.intake.v1.DataSourceAdminService/ListConnectorTypes
 ```
 
 ### Get Connector Type by ID
 ```bash
 grpcurl -plaintext -d '{"connector_id": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"}' \
-  localhost:38107 \
+  localhost:18107 \
   ai.pipestream.connector.intake.v1.DataSourceAdminService/GetConnectorType
 ```
 
@@ -45,21 +45,21 @@ grpcurl -plaintext -d '{
   "name": "My S3 DataSource",
   "drive_name": "my-drive",
   "metadata": {"env": "dev", "team": "engineering"}
-}' localhost:38107 \
+}' localhost:18107 \
   ai.pipestream.connector.intake.v1.DataSourceAdminService/CreateDataSource
 ```
 
 ### Get DataSource
 ```bash
 grpcurl -plaintext -d '{"datasource_id": "YOUR_DATASOURCE_ID"}' \
-  localhost:38107 \
+  localhost:18107 \
   ai.pipestream.connector.intake.v1.DataSourceAdminService/GetDataSource
 ```
 
 ### List DataSources for Account
 ```bash
 grpcurl -plaintext -d '{"account_id": "my-account-123"}' \
-  localhost:38107 \
+  localhost:18107 \
   ai.pipestream.connector.intake.v1.DataSourceAdminService/ListDataSources
 ```
 
@@ -70,14 +70,14 @@ grpcurl -plaintext -d '{
   "name": "Updated Name",
   "drive_name": "new-drive",
   "metadata": {"env": "staging"}
-}' localhost:38107 \
+}' localhost:18107 \
   ai.pipestream.connector.intake.v1.DataSourceAdminService/UpdateDataSource
 ```
 
 ### Delete DataSource (soft delete)
 ```bash
 grpcurl -plaintext -d '{"datasource_id": "YOUR_DATASOURCE_ID"}' \
-  localhost:38107 \
+  localhost:18107 \
   ai.pipestream.connector.intake.v1.DataSourceAdminService/DeleteDataSource
 ```
 
@@ -90,14 +90,14 @@ grpcurl -plaintext -d '{"datasource_id": "YOUR_DATASOURCE_ID"}' \
 grpcurl -plaintext -d '{
   "datasource_id": "YOUR_DATASOURCE_ID",
   "api_key": "YOUR_API_KEY"
-}' localhost:38107 \
+}' localhost:18107 \
   ai.pipestream.connector.intake.v1.DataSourceAdminService/ValidateApiKey
 ```
 
 ### Rotate API Key
 ```bash
 grpcurl -plaintext -d '{"datasource_id": "YOUR_DATASOURCE_ID"}' \
-  localhost:38107 \
+  localhost:18107 \
   ai.pipestream.connector.intake.v1.DataSourceAdminService/RotateApiKey
 ```
 
@@ -111,7 +111,7 @@ grpcurl -plaintext -d '{
   "datasource_id": "YOUR_DATASOURCE_ID",
   "active": false,
   "reason": "maintenance"
-}' localhost:38107 \
+}' localhost:18107 \
   ai.pipestream.connector.intake.v1.DataSourceAdminService/SetDataSourceStatus
 ```
 
@@ -120,7 +120,7 @@ grpcurl -plaintext -d '{
 grpcurl -plaintext -d '{
   "datasource_id": "YOUR_DATASOURCE_ID",
   "active": true
-}' localhost:38107 \
+}' localhost:18107 \
   ai.pipestream.connector.intake.v1.DataSourceAdminService/SetDataSourceStatus
 ```
 
@@ -128,5 +128,5 @@ grpcurl -plaintext -d '{
 
 ## Health Check
 ```bash
-grpcurl -plaintext localhost:38107 grpc.health.v1.Health/Check
+grpcurl -plaintext localhost:18107 grpc.health.v1.Health/Check
 ```
