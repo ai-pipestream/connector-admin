@@ -13,8 +13,8 @@ set -e
 
 TOPIC="${ACCOUNT_EVENTS_TOPIC:-account-events}"
 KAFKA_CONTAINER="${KAFKA_CONTAINER:-pipeline-kafka}"
-# Inside the container we use the PLAINTEXT listener
-BOOTSTRAP="localhost:9092"
+# Inside the container we use the LOCALHOST listener
+BOOTSTRAP="localhost:9094"
 
 if ! docker ps --format '{{.Names}}' | grep -q "^${KAFKA_CONTAINER}$"; then
   echo "Error: Kafka container '${KAFKA_CONTAINER}' is not running."
