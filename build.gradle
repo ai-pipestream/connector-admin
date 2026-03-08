@@ -95,8 +95,6 @@ dependencies {
     implementation 'io.smallrye.stork:stork-service-discovery-consul'
     implementation 'io.smallrye.stork:stork-service-discovery-static-list'
     implementation 'io.smallrye.reactive:smallrye-mutiny-vertx-consul-client'
-    implementation 'io.smallrye.stork:stork-service-registration-consul'
-
     // Password hashing
     implementation libs.password4j
 
@@ -123,6 +121,9 @@ dependencies {
     integrationTestImplementation 'io.grpc:grpc-stub'
 }
 
+configurations.all {
+    resolutionStrategy.cacheChangingModulesFor 0, 'seconds'
+}
 
 group 'ai.pipestream'
 version "${scmVersion.version}"
