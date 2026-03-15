@@ -1,8 +1,10 @@
 package ai.pipestream.connector.util;
 
+import ai.pipestream.connector.credentials.CredentialService;
 import com.password4j.Argon2Function;
 import com.password4j.Hash;
 import com.password4j.Password;
+import io.quarkus.arc.DefaultBean;
 import jakarta.enterprise.context.ApplicationScoped;
 import org.jboss.logging.Logger;
 
@@ -10,26 +12,18 @@ import java.security.SecureRandom;
 import java.util.Base64;
 
 /**
- * Utilities for API key generation and hashing.
+ * Default {@link CredentialService} implementation using Argon2id hashing.
  * <p>
- * API keys are:
- * <ul>
- *   <li>Generated as secure random Base64 strings</li>
- *   <li>Hashed with Argon2id before storage (current best practice)</li>
- *   <li>Never stored in plaintext</li>
- *   <li>Only returned once at creation/rotation time</li>
- * </ul>
+ * API keys are generated as secure random Base64 strings and hashed with
+ * Argon2id before storage. This is the local/dev implementation.
  * <p>
- * Uses password4j library with Argon2id algorithm, which provides:
- * <ul>
- *   <li>Resistance to GPU cracking attacks</li>
- *   <li>Protection against side-channel attacks</li>
- *   <li>Memory-hard algorithm (configurable memory cost)</li>
- *   <li>Winner of Password Hashing Competition</li>
- * </ul>
+ * For production, replace by providing an alternative {@link CredentialService}
+ * CDI bean (e.g., backed by AWS Secrets Manager). The {@link DefaultBean}
+ * annotation ensures this implementation is used only when no other is present.
  */
 @ApplicationScoped
-public class ApiKeyUtil {
+@DefaultBean
+public class ApiKeyUtil implements CredentialService {
 
     private static final Logger LOG = Logger.getLogger(ApiKeyUtil.class);
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
@@ -58,6 +52,7 @@ public class ApiKeyUtil {
      *
      * @return Base64-encoded API key (plaintext - must be hashed before storage)
      */
+    @Override
     public String generateApiKey() {
         byte[] randomBytes = new byte[API_KEY_BYTES];
         SECURE_RANDOM.nextBytes(randomBytes);
@@ -82,6 +77,7 @@ public class ApiKeyUtil {
      * @param plaintextApiKey The plaintext API key
      * @return Argon2id hash in PHC format suitable for database storage
      */
+    @Override
     public String hashApiKey(String plaintextApiKey) {
         Hash hash = Password.hash(plaintextApiKey).with(ARGON2);
         String hashString = hash.getResult();
@@ -99,6 +95,7 @@ public class ApiKeyUtil {
      * @param storedHash The Argon2id hash from database (PHC format)
      * @return true if the key matches the hash, false otherwise
      */
+    @Override
     public boolean verifyApiKey(String plaintextApiKey, String storedHash) {
         try {
             boolean matches = Password.check(plaintextApiKey, storedHash).with(ARGON2);

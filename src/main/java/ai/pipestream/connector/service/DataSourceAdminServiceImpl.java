@@ -30,7 +30,7 @@ import ai.pipestream.connector.intake.v1.UpdateDataSourceResponse;
 import ai.pipestream.connector.intake.v1.ValidateApiKeyRequest;
 import ai.pipestream.connector.intake.v1.ValidateApiKeyResponse;
 import ai.pipestream.connector.repository.DataSourceRepository;
-import ai.pipestream.connector.util.ApiKeyUtil;
+import ai.pipestream.connector.credentials.CredentialService;
 import io.quarkus.grpc.GrpcService;
 import io.smallrye.mutiny.Uni;
 import jakarta.inject.Inject;
@@ -48,7 +48,7 @@ import java.util.stream.Collectors;
  *   <li>DataSource creation with API key generation</li>
  *   <li>Lookup and listing with pagination</li>
  *   <li>Status transitions (enable/disable) and soft deletion</li>
- *   <li>API key rotation using Argon2id hashing via {@link ApiKeyUtil}</li>
+ *   <li>API key rotation via pluggable {@link CredentialService}</li>
  *   <li>Connector type listing (pre-seeded templates)</li>
  * </ul>
  *
@@ -66,7 +66,7 @@ public class DataSourceAdminServiceImpl extends MutinyDataSourceAdminServiceGrpc
     AccountValidationService accountValidationService;
 
     @Inject
-    ApiKeyUtil apiKeyUtil;
+    CredentialService apiKeyUtil;
 
     @Inject
     ConfigMergingService configMergingService;
