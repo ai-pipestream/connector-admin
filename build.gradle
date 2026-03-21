@@ -44,7 +44,6 @@ pipestreamProtos {
 }
 
 repositories {
-        mavenLocal()
     mavenLocal()
     mavenCentral()
 
@@ -156,15 +155,12 @@ tasks.withType(Javadoc).configureEach { task ->
     task.exclude('**/v1/**')
     task.exclude('**/quarkus-generated-sources/**')
 
-    // Javadoc options
+    // Javadoc options (StandardJavadocDocletOptions supports addStringOption in Gradle 8+)
     def opts = task.options
     opts.encoding = 'UTF-8'
     opts.charSet = 'UTF-8'
     opts.locale = 'en'
-    // Be tolerant to doclint issues in dependent types
-    if (opts.respondsTo('addStringOption')) {
-        opts.addStringOption('Xdoclint:none', '-quiet')
-    }
+    opts.addStringOption('Xdoclint:none', '-quiet')
     // Do not fail the build on Javadoc issues
     task.failOnError = false
 }
@@ -210,8 +206,6 @@ publishing {
     }
 
     repositories {
-        mavenLocal()
-        // Publish to Maven Local for development
         mavenLocal()
 
         // Publish to GitHub Packages when credentials are available (CI)
