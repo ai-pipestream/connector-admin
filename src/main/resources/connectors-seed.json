@@ -1,0 +1,20 @@
+[
+  {
+    "connector_type": "s3",
+    "name": "S3 Bucket Crawler",
+    "description": "Crawl documents from Amazon S3 buckets",
+    "management_type": "UNMANAGED"
+  },
+  {
+    "connector_type": "file-crawler",
+    "name": "File System Crawler",
+    "description": "Crawl documents from local or network file systems",
+    "management_type": "UNMANAGED"
+  },
+  {
+    "connector_type": "jdbc",
+    "name": "JDBC Database Connector",
+    "description": "Crawl records from relational databases via JDBC",
+    "management_type": "UNMANAGED"
+  }
+]

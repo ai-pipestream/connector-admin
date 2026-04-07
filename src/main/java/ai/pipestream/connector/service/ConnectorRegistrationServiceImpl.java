@@ -4,8 +4,12 @@ import ai.pipestream.connector.entity.Connector;
 import ai.pipestream.connector.entity.ConnectorConfigSchema;
 import ai.pipestream.connector.intake.v1.CreateConnectorConfigSchemaRequest;
 import ai.pipestream.connector.intake.v1.CreateConnectorConfigSchemaResponse;
+import ai.pipestream.connector.intake.v1.CreateConnectorTypeRequest;
+import ai.pipestream.connector.intake.v1.CreateConnectorTypeResponse;
 import ai.pipestream.connector.intake.v1.DeleteConnectorConfigSchemaRequest;
 import ai.pipestream.connector.intake.v1.DeleteConnectorConfigSchemaResponse;
+import ai.pipestream.connector.intake.v1.DeleteConnectorTypeRequest;
+import ai.pipestream.connector.intake.v1.DeleteConnectorTypeResponse;
 import ai.pipestream.connector.intake.v1.GetConnectorConfigSchemaRequest;
 import ai.pipestream.connector.intake.v1.GetConnectorConfigSchemaResponse;
 import ai.pipestream.connector.intake.v1.ListConnectorConfigSchemasRequest;
@@ -16,6 +20,7 @@ import ai.pipestream.connector.intake.v1.SetConnectorCustomConfigSchemaResponse;
 import ai.pipestream.connector.intake.v1.UpdateConnectorTypeDefaultsRequest;
 import ai.pipestream.connector.intake.v1.UpdateConnectorTypeDefaultsResponse;
 import ai.pipestream.connector.repository.ConnectorRegistrationRepository;
+import ai.pipestream.connector.v1.ManagementType;
 import com.google.protobuf.Struct;
 import com.google.protobuf.Timestamp;
 import com.google.protobuf.util.JsonFormat;
@@ -40,6 +45,83 @@ public class ConnectorRegistrationServiceImpl extends MutinyConnectorRegistratio
 
     @Inject
     ConnectorRegistrationRepository connectorRegistrationRepository;
+
+    /**
+     * Creates a new connector type with a deterministic ID derived from connector_type.
+     */
+    @Override
+    public Uni<CreateConnectorTypeResponse> createConnectorType(CreateConnectorTypeRequest request) {
+        if (request.getConnectorType() == null || request.getConnectorType().isBlank()) {
+            return Uni.createFrom().failure(new IllegalArgumentException("connector_type is required"));
+        }
+        if (request.getName() == null || request.getName().isBlank()) {
+            return Uni.createFrom().failure(new IllegalArgumentException("name is required"));
+        }
+
+        String connectorType = request.getConnectorType().trim().toLowerCase();
+        String managementType = "UNMANAGED";
+        if (request.getManagementType() == ManagementType.MANAGEMENT_TYPE_MANAGED) {
+            managementType = "MANAGED";
+        }
+
+        // Check for duplicate by type name
+        String finalManagementType = managementType;
+        return connectorRegistrationRepository.findConnectorByType(connectorType)
+            .flatMap(existing -> {
+                if (existing != null) {
+                    return Uni.createFrom().failure(Status.ALREADY_EXISTS
+                        .withDescription("Connector type already exists: " + connectorType)
+                        .asRuntimeException());
+                }
+                return connectorRegistrationRepository.createConnector(
+                    connectorType,
+                    request.getName(),
+                    request.getDescription(),
+                    finalManagementType,
+                    request.getDisplayName(),
+                    request.getOwner(),
+                    request.getDocumentationUrl(),
+                    request.getTagsList().isEmpty() ? null : request.getTagsList());
+            })
+            .map(created -> CreateConnectorTypeResponse.newBuilder()
+                .setSuccess(true)
+                .setMessage("Connector type '" + connectorType + "' created with id " + created.connectorId)
+                .setConnector(toProtoConnector(created))
+                .build());
+    }
+
+    /**
+     * Deletes a connector type. Fails if any DataSource references it.
+     */
+    @Override
+    public Uni<DeleteConnectorTypeResponse> deleteConnectorType(DeleteConnectorTypeRequest request) {
+        if (request.getConnectorId() == null || request.getConnectorId().isBlank()) {
+            return Uni.createFrom().failure(new IllegalArgumentException("connector_id is required"));
+        }
+
+        return connectorRegistrationRepository.hasDataSources(request.getConnectorId())
+            .flatMap(hasDs -> {
+                if (hasDs) {
+                    return Uni.createFrom().failure(Status.FAILED_PRECONDITION
+                        .withDescription("Cannot delete connector type: active DataSources reference it")
+                        .asRuntimeException());
+                }
+                // Also check schema references
+                return connectorRegistrationRepository.isSchemaReferencedByConnector(request.getConnectorId());
+            })
+            .flatMap(hasSchemas -> connectorRegistrationRepository.deleteConnector(request.getConnectorId()))
+            .flatMap(deleted -> {
+                if (!deleted) {
+                    return Uni.createFrom().failure(Status.NOT_FOUND
+                        .withDescription("Connector type not found: " + request.getConnectorId())
+                        .asRuntimeException());
+                }
+                return Uni.createFrom().item(DeleteConnectorTypeResponse.newBuilder()
+                    .setSuccess(true)
+                    .setMessage("Connector type deleted")
+                    .build());
+            });
+    }
 
     @Override
     public Uni<CreateConnectorConfigSchemaResponse> createConnectorConfigSchema(CreateConnectorConfigSchemaRequest request) {
