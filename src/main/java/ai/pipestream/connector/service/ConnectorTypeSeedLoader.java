@@ -6,14 +6,18 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.quarkus.hibernate.reactive.panache.Panache;
 import io.quarkus.runtime.StartupEvent;
+import io.quarkus.vertx.core.runtime.context.VertxContextSafetyToggle;
+import io.smallrye.common.vertx.VertxContext;
 import io.smallrye.mutiny.Uni;
+import io.vertx.core.Context;
+import io.vertx.mutiny.core.Vertx;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
+import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
 
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -30,8 +34,18 @@ public class ConnectorTypeSeedLoader {
     private static final Logger LOG = Logger.getLogger(ConnectorTypeSeedLoader.class);
     private static final String SEED_RESOURCE = "connectors-seed.json";
 
+    @Inject
+    Vertx vertx;
+
     /**
      * Observes Quarkus startup and seeds connector types from the JSON resource.
+     * <p>
+     * Panache requires a duplicated Vertx context marked as safe for reactive
+     * session operations. The startup event fires on the main thread (no Vertx
+     * context), so we use {@code VertxContext.getOrCreateDuplicatedContext(vertx)}
+     * to obtain one from the Vertx instance, then set the safety flag.
+     * This follows the same pattern as Quarkus's own {@code VertxContextSupport}.
+     * <p>
      * Failures are logged but do not prevent application startup.
      */
     void onStartup(@Observes StartupEvent event) {
@@ -44,8 +58,15 @@ public class ConnectorTypeSeedLoader {
         LOG.infof("Seeding %d connector types from %s", entries.size(), SEED_RESOURCE);
 
         try {
-            // Chain upserts sequentially to avoid transaction conflicts
-            Uni<Void> chain = Uni.createFrom().voidItem();
+            // Create a safe duplicated context from the Vertx instance.
+            // On the main thread there's no Vertx context, so we need to go through the instance.
+            Context safeContext = VertxContext.getOrCreateDuplicatedContext(vertx.getDelegate());
+            VertxContextSafetyToggle.setContextSafe(safeContext, true);
+
+            // Chain upserts sequentially on the safe context for Panache session access
+            Uni<Void> chain = Uni.createFrom().voidItem()
+                .emitOn(runnable -> safeContext.runOnContext(v -> runnable.run()));
+
             for (SeedEntry entry : entries) {
                 chain = chain.flatMap(v -> upsertConnectorType(entry));
             }
@@ -60,16 +81,19 @@ public class ConnectorTypeSeedLoader {
 
     /**
      * Upserts a single connector type: creates if missing, skips if exists.
+     * Looks up by connector_type (not connector_id) because the Flyway V1 seed
+     * used hardcoded UUIDs that differ from the deterministic generation.
      */
     private Uni<Void> upsertConnectorType(SeedEntry entry) {
         String connectorId = UUID.nameUUIDFromBytes(
             entry.connectorType.getBytes(StandardCharsets.UTF_8)).toString();
 
         return Panache.withTransaction(() ->
-            Connector.<Connector>findById(connectorId)
+            Connector.<Connector>find("connectorType", entry.connectorType).firstResult()
                 .flatMap(existing -> {
                     if (existing != null) {
-                        LOG.debugf("Connector type '%s' already exists, skipping", entry.connectorType);
+                        LOG.debugf("Connector type '%s' already exists (id=%s), skipping",
+                            entry.connectorType, existing.connectorId);
                         return Uni.createFrom().voidItem();
                     }
                     Connector connector = new Connector(
