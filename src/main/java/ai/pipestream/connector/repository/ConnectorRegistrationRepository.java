@@ -144,7 +144,7 @@ public class ConnectorRegistrationRepository {
     }
 
     // ========================================================================
-    // Connector updates
+    // Connector type CRUD
     // ========================================================================
 
     /**
@@ -153,6 +153,75 @@ public class ConnectorRegistrationRepository {
     public Uni<Connector> findConnectorById(String connectorId) {
         return Panache.withSession(() -> Connector.<Connector>findById(connectorId));
     }
+
+    /**
+     * Finds a connector by its type name (reactive).
+     */
+    public Uni<Connector> findConnectorByType(String connectorType) {
+        return Panache.withSession(() ->
+            Connector.<Connector>find("connectorType", connectorType).firstResult()
+        );
+    }
+
+    /**
+     * Creates a new connector type (reactive).
+     *
+     * @return the persisted Connector entity
+     */
+    public Uni<Connector> createConnector(String connectorType, String name, String description,
+                                          String managementType, String displayName, String owner,
+                                          String documentationUrl, List<String> tags) {
+        return Panache.withTransaction(() -> {
+            String connectorId = generateConnectorId(connectorType);
+
+            Connector connector = new Connector(connectorId, connectorType, name, description, managementType);
+            if (displayName != null && !displayName.isBlank()) {
+                connector.displayName = displayName;
+            }
+            if (owner != null && !owner.isBlank()) {
+                connector.owner = owner;
+            }
+            if (documentationUrl != null && !documentationUrl.isBlank()) {
+                connector.documentationUrl = documentationUrl;
+            }
+            if (tags != null && !tags.isEmpty()) {
+                connector.tags = tags;
+            }
+
+            LOG.infof("Creating connector type '%s' with id %s", connectorType, connectorId);
+            return connector.<Connector>persist();
+        });
+    }
+
+    /**
+     * Deletes a connector type by ID (reactive).
+     *
+     * @return true if deleted, false if not found
+     */
+    public Uni<Boolean> deleteConnector(String connectorId) {
+        return Panache.withTransaction(() ->
+            findConnectorById(connectorId)
+                .flatMap(connector -> {
+                    if (connector == null) {
+                        return Uni.createFrom().item(false);
+                    }
+                    return connector.delete().map(v -> true);
+                })
+        );
+    }
+
+    /**
+     * Checks if any DataSource references this connector type (reactive).
+     */
+    public Uni<Boolean> hasDataSources(String connectorId) {
+        return Panache.withSession(() ->
+            DataSource.count("connectorId", connectorId).map(count -> count > 0)
+        );
+    }
+
+    // ========================================================================
+    // Connector updates
+    // ========================================================================
 
     /**
      * Deterministic connector id: UUID.nameUUIDFromBytes(connectorType.getBytes(UTF_8)).
