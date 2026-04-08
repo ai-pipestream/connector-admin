@@ -2,8 +2,11 @@ package ai.pipestream.connector.service;
 
 import ai.pipestream.connector.intake.v1.CreateConnectorTypeRequest;
 import ai.pipestream.connector.intake.v1.CreateConnectorTypeResponse;
+import ai.pipestream.connector.intake.v1.CreateDataSourceRequest;
+import ai.pipestream.connector.intake.v1.CreateDataSourceResponse;
 import ai.pipestream.connector.intake.v1.DeleteConnectorTypeRequest;
 import ai.pipestream.connector.intake.v1.DeleteConnectorTypeResponse;
+import ai.pipestream.connector.intake.v1.DeleteDataSourceRequest;
 import ai.pipestream.connector.intake.v1.ListConnectorTypesRequest;
 import ai.pipestream.connector.intake.v1.ListConnectorTypesResponse;
 import ai.pipestream.connector.intake.v1.MutinyConnectorRegistrationServiceGrpc;
@@ -253,25 +256,60 @@ public abstract class ConnectorTypeCrudBaseTest {
 
     @Test
     void deleteConnectorType_withDataSources_returnsFailedPrecondition() {
-        // The pre-seeded 's3' connector has DataSources referencing it
-        // (created by other tests or production seed). Use the known S3 connector ID.
-        // This test only works if there's at least one DataSource for s3.
-        // We use ListConnectorTypes to find the s3 connector first.
-        ListConnectorTypesResponse list = adminStub().listConnectorTypes(
-            ListConnectorTypesRequest.newBuilder().build()
+        // Create a connector type, create a datasource referencing it, then try to delete
+        CreateConnectorTypeResponse created = registrationStub().createConnectorType(
+            CreateConnectorTypeRequest.newBuilder()
+                .setConnectorType("test-precondition")
+                .setName("Precondition Test")
+                .build()
         ).await().indefinitely();
 
-        var s3Connector = list.getConnectorsList().stream()
-            .filter(c -> c.getConnectorType().equals("s3"))
-            .findFirst();
+        assertThat(created.getSuccess()).as("create connector should succeed").isTrue();
+        String connectorId = created.getConnector().getConnectorId();
+        String datasourceId = null;
 
-        // If s3 connector exists, try to delete it — but this will only fail
-        // if there are DataSources. Since we can't guarantee that in isolation,
-        // we create a connector, create a datasource for it, then try to delete.
-        // For now, just verify the connector exists.
-        assertThat(s3Connector)
-            .as("s3 connector should be pre-seeded")
-            .isPresent();
+        try {
+            // Create a datasource referencing this connector type
+            CreateDataSourceResponse ds = adminStub().createDataSource(
+                CreateDataSourceRequest.newBuilder()
+                    .setAccountId("test-account")
+                    .setConnectorId(connectorId)
+                    .setName("Test DS for precondition")
+                    .setDriveName("test-drive")
+                    .build()
+            ).await().indefinitely();
+
+            assertThat(ds.getSuccess()).as("create datasource should succeed").isTrue();
+            datasourceId = ds.getDatasource().getDatasourceId();
+
+            // Now try to delete the connector type — should fail with FAILED_PRECONDITION
+            Uni<DeleteConnectorTypeResponse> deleteAttempt = registrationStub().deleteConnectorType(
+                DeleteConnectorTypeRequest.newBuilder()
+                    .setConnectorId(connectorId)
+                    .build()
+            );
+
+            StatusRuntimeException ex = org.junit.jupiter.api.Assertions.assertThrows(
+                StatusRuntimeException.class,
+                () -> deleteAttempt.await().indefinitely()
+            );
+            assertThat(ex.getStatus().getCode())
+                .as("delete with active datasources should return FAILED_PRECONDITION")
+                .isEqualTo(io.grpc.Status.Code.FAILED_PRECONDITION);
+        } finally {
+            // Cleanup: delete datasource first, then connector type
+            if (datasourceId != null) {
+                try {
+                    adminStub().deleteDataSource(
+                        DeleteDataSourceRequest.newBuilder()
+                            .setDatasourceId(datasourceId)
+                            .setHardDelete(true)
+                            .build()
+                    ).await().indefinitely();
+                } catch (Exception ignored) {}
+            }
+            cleanupConnectorType(connectorId);
+        }
     }
 
     @Test

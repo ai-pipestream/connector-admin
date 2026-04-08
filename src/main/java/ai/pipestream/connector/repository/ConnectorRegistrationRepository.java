@@ -219,6 +219,15 @@ public class ConnectorRegistrationRepository {
         );
     }
 
+    /**
+     * Checks if any ConnectorConfigSchema belongs to this connector type (reactive).
+     */
+    public Uni<Boolean> hasSchemas(String connectorId) {
+        return Panache.withSession(() ->
+            ConnectorConfigSchema.count("connectorId", connectorId).map(count -> count > 0)
+        );
+    }
+
     // ========================================================================
     // Connector updates
     // ========================================================================

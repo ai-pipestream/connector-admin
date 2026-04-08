@@ -52,10 +52,12 @@ public class ConnectorRegistrationServiceImpl extends MutinyConnectorRegistratio
     @Override
     public Uni<CreateConnectorTypeResponse> createConnectorType(CreateConnectorTypeRequest request) {
         if (request.getConnectorType() == null || request.getConnectorType().isBlank()) {
-            return Uni.createFrom().failure(new IllegalArgumentException("connector_type is required"));
+            return Uni.createFrom().failure(Status.INVALID_ARGUMENT
+                .withDescription("connector_type is required").asRuntimeException());
         }
         if (request.getName() == null || request.getName().isBlank()) {
-            return Uni.createFrom().failure(new IllegalArgumentException("name is required"));
+            return Uni.createFrom().failure(Status.INVALID_ARGUMENT
+                .withDescription("name is required").asRuntimeException());
         }
 
         String connectorType = request.getConnectorType().trim().toLowerCase();
@@ -87,7 +89,12 @@ public class ConnectorRegistrationServiceImpl extends MutinyConnectorRegistratio
                 .setSuccess(true)
                 .setMessage("Connector type '" + connectorType + "' created with id " + created.connectorId)
                 .setConnector(toProtoConnector(created))
-                .build());
+                .build())
+            .onFailure(e -> e instanceof org.hibernate.exception.ConstraintViolationException
+                    || (e.getCause() != null && e.getCause() instanceof org.hibernate.exception.ConstraintViolationException))
+                .recoverWithUni(e -> Uni.createFrom().failure(Status.ALREADY_EXISTS
+                    .withDescription("Connector type already exists: " + connectorType)
+                    .asRuntimeException()));
     }
 
     /**
@@ -96,7 +103,8 @@ public class ConnectorRegistrationServiceImpl extends MutinyConnectorRegistratio
     @Override
     public Uni<DeleteConnectorTypeResponse> deleteConnectorType(DeleteConnectorTypeRequest request) {
         if (request.getConnectorId() == null || request.getConnectorId().isBlank()) {
-            return Uni.createFrom().failure(new IllegalArgumentException("connector_id is required"));
+            return Uni.createFrom().failure(Status.INVALID_ARGUMENT
+                .withDescription("connector_id is required").asRuntimeException());
         }
 
         return connectorRegistrationRepository.hasDataSources(request.getConnectorId())
@@ -106,10 +114,17 @@ public class ConnectorRegistrationServiceImpl extends MutinyConnectorRegistratio
                         .withDescription("Cannot delete connector type: active DataSources reference it")
                         .asRuntimeException());
                 }
-                // Also check schema references
-                return connectorRegistrationRepository.isSchemaReferencedByConnector(request.getConnectorId());
+                // Check if any schemas belong to this connector type
+                return connectorRegistrationRepository.hasSchemas(request.getConnectorId());
             })
-            .flatMap(hasSchemas -> connectorRegistrationRepository.deleteConnector(request.getConnectorId()))
+            .flatMap(hasSchemas -> {
+                if (hasSchemas) {
+                    return Uni.createFrom().<Boolean>failure(Status.FAILED_PRECONDITION
+                        .withDescription("Cannot delete connector type: config schemas still reference it")
+                        .asRuntimeException());
+                }
+                return connectorRegistrationRepository.deleteConnector(request.getConnectorId());
+            })
             .flatMap(deleted -> {
                 if (!deleted) {
                     return Uni.createFrom().failure(Status.NOT_FOUND
