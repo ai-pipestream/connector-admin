@@ -4,6 +4,8 @@ import com.google.protobuf.Timestamp;
 import io.grpc.Status;
 import ai.pipestream.connector.entity.Connector;
 import ai.pipestream.connector.entity.DataSource;
+import ai.pipestream.connector.intake.v1.CleanupTestDataSourcesRequest;
+import ai.pipestream.connector.intake.v1.CleanupTestDataSourcesResponse;
 import ai.pipestream.connector.intake.v1.CreateDataSourceRequest;
 import ai.pipestream.connector.intake.v1.CreateDataSourceResponse;
 import ai.pipestream.connector.intake.v1.DataSourceConfig;
@@ -31,11 +33,13 @@ import ai.pipestream.connector.intake.v1.ValidateApiKeyRequest;
 import ai.pipestream.connector.intake.v1.ValidateApiKeyResponse;
 import ai.pipestream.connector.repository.DataSourceRepository;
 import ai.pipestream.connector.credentials.CredentialService;
+import io.quarkus.hibernate.reactive.panache.Panache;
 import io.quarkus.grpc.GrpcService;
 import io.smallrye.mutiny.Uni;
 import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -437,6 +441,57 @@ public class DataSourceAdminServiceImpl extends MutinyDataSourceAdminServiceGrpc
             Status.UNIMPLEMENTED
                 .withDescription("GetCrawlHistory not yet implemented")
                 .asRuntimeException()
+        );
+    }
+
+    /**
+     * Hard-deletes all datasources whose accountId starts with the given prefix.
+     * Intended for cleaning up test data (e.g., prefix = "jdbc-e2e-" or "transport-e2e-").
+     *
+     * @param request CleanupTestDataSourcesRequest with account_id_prefix
+     * @return CleanupTestDataSourcesResponse with count and deleted IDs
+     */
+    @Override
+    public Uni<CleanupTestDataSourcesResponse> cleanupTestDataSources(CleanupTestDataSourcesRequest request) {
+        String prefix = request.getAccountIdPrefix();
+        if (prefix == null || prefix.isBlank()) {
+            return Uni.createFrom().failure(Status.INVALID_ARGUMENT
+                .withDescription("account_id_prefix must not be blank")
+                .asRuntimeException());
+        }
+
+        LOG.infof("Cleaning up test datasources with account_id prefix: %s", prefix);
+
+        return Panache.withTransaction(() ->
+            DataSource.<DataSource>find("accountId like ?1", prefix + "%").list()
+                .flatMap(datasources -> {
+                    if (datasources.isEmpty()) {
+                        LOG.infof("No test datasources found with prefix: %s", prefix);
+                        return Uni.createFrom().item(CleanupTestDataSourcesResponse.newBuilder()
+                            .setSuccess(true)
+                            .setMessage("No datasources found matching prefix: " + prefix)
+                            .setDatasourcesDeleted(0)
+                            .build());
+                    }
+
+                    List<String> deletedIds = new ArrayList<>();
+                    for (DataSource ds : datasources) {
+                        deletedIds.add(ds.datasourceId);
+                    }
+
+                    LOG.infof("Hard-deleting %d test datasources with prefix: %s", deletedIds.size(), prefix);
+
+                    return DataSource.delete("accountId like ?1", prefix + "%")
+                        .map(deleteCount -> {
+                            LOG.infof("Hard-deleted %d test datasources with prefix: %s", deleteCount, prefix);
+                            return CleanupTestDataSourcesResponse.newBuilder()
+                                .setSuccess(true)
+                                .setMessage("Deleted " + deleteCount + " datasource(s) matching prefix: " + prefix)
+                                .setDatasourcesDeleted((int) Math.min(deleteCount, Integer.MAX_VALUE))
+                                .addAllDeletedDatasourceIds(deletedIds)
+                                .build();
+                        });
+                })
         );
     }
 
