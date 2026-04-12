@@ -596,6 +596,75 @@ public class DataSourceAdminServiceTest {
         });
     }
 
+    @Test
+    @RunOnVertxContext
+    void testCleanupTestDataSources_BlankIdFails(UniAsserter asserter) {
+        CleanupTestDataSourcesRequest request = CleanupTestDataSourcesRequest.newBuilder()
+            .setAccountId("")
+            .build();
+
+        asserter.assertThat(() -> dataSourceAdminService.cleanupTestDataSources(request)
+            .onFailure().recoverWithUni(failure -> Uni.createFrom().nullItem()), response -> {
+                assertNull(response, "Expected INVALID_ARGUMENT failure");
+            });
+    }
+
+    @Test
+    @RunOnVertxContext
+    void testCleanupTestDataSources_NoMatches(UniAsserter asserter) {
+        CleanupTestDataSourcesRequest request = CleanupTestDataSourcesRequest.newBuilder()
+            .setAccountId("non-existent-account")
+            .build();
+
+        asserter.assertThat(() -> dataSourceAdminService.cleanupTestDataSources(request), response -> {
+            assertTrue(response.getSuccess());
+            assertEquals(0, response.getDatasourcesDeleted());
+            assertEquals(0, response.getDeletedDatasourceIdsCount());
+        });
+    }
+
+    @Test
+    @RunOnVertxContext
+    void testCleanupTestDataSources_Success(UniAsserter asserter) {
+        String uniqueAccount = "cleanup-test-" + System.currentTimeMillis();
+        String secondConnectorId = "b1ffc0aa-0d1c-5f09-cc7e-7cc0ce491b22"; // file-crawler
+
+        // Create two datasources for the same account
+        asserter.execute(() -> dataSourceAdminService.createDataSource(CreateDataSourceRequest.newBuilder()
+            .setAccountId(uniqueAccount)
+            .setConnectorId(TEST_CONNECTOR_ID)
+            .setName("DS1")
+            .setDriveName("drive1")
+            .build()).replaceWithVoid());
+
+        asserter.execute(() -> dataSourceAdminService.createDataSource(CreateDataSourceRequest.newBuilder()
+            .setAccountId(uniqueAccount)
+            .setConnectorId(secondConnectorId)
+            .setName("DS2")
+            .setDriveName("drive2")
+            .build()).replaceWithVoid());
+
+        // Cleanup
+        CleanupTestDataSourcesRequest request = CleanupTestDataSourcesRequest.newBuilder()
+            .setAccountId(uniqueAccount)
+            .build();
+
+        asserter.assertThat(() -> dataSourceAdminService.cleanupTestDataSources(request), response -> {
+            assertTrue(response.getSuccess());
+            assertEquals(2, response.getDatasourcesDeleted());
+            assertEquals(2, response.getDeletedDatasourceIdsCount());
+
+            // Verify they are really gone (hard deleted)
+            ListDataSourcesRequest listRequest = ListDataSourcesRequest.newBuilder()
+                .setAccountId(uniqueAccount)
+                .build();
+
+            asserter.assertThat(() -> dataSourceAdminService.listDataSources(listRequest), listResponse -> {
+                assertEquals(0, listResponse.getDatasourcesCount());
+            });
+        });
+    }
+
     // Helper methods - reactive versions for use in @RunOnVertxContext tests
     Uni<Connector> setConnectorDefaultsReactive(String connectorId, Boolean persistPipedoc, Integer maxInlineSizeBytes, String defaultCustomConfig) {
         return Panache.withTransaction(() ->

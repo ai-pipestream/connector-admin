@@ -39,7 +39,6 @@ import io.smallrye.mutiny.Uni;
 import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -445,57 +444,6 @@ public class DataSourceAdminServiceImpl extends MutinyDataSourceAdminServiceGrpc
     }
 
     /**
-     * Hard-deletes all datasources whose accountId starts with the given prefix.
-     * Intended for cleaning up test data (e.g., prefix = "jdbc-e2e-" or "transport-e2e-").
-     *
-     * @param request CleanupTestDataSourcesRequest with account_id_prefix
-     * @return CleanupTestDataSourcesResponse with count and deleted IDs
-     */
-    @Override
-    public Uni<CleanupTestDataSourcesResponse> cleanupTestDataSources(CleanupTestDataSourcesRequest request) {
-        String prefix = request.getAccountIdPrefix();
-        if (prefix == null || prefix.isBlank()) {
-            return Uni.createFrom().failure(Status.INVALID_ARGUMENT
-                .withDescription("account_id_prefix must not be blank")
-                .asRuntimeException());
-        }
-
-        LOG.infof("Cleaning up test datasources with account_id prefix: %s", prefix);
-
-        return Panache.withTransaction(() ->
-            DataSource.<DataSource>find("accountId like ?1", prefix + "%").list()
-                .flatMap(datasources -> {
-                    if (datasources.isEmpty()) {
-                        LOG.infof("No test datasources found with prefix: %s", prefix);
-                        return Uni.createFrom().item(CleanupTestDataSourcesResponse.newBuilder()
-                            .setSuccess(true)
-                            .setMessage("No datasources found matching prefix: " + prefix)
-                            .setDatasourcesDeleted(0)
-                            .build());
-                    }
-
-                    List<String> deletedIds = new ArrayList<>();
-                    for (DataSource ds : datasources) {
-                        deletedIds.add(ds.datasourceId);
-                    }
-
-                    LOG.infof("Hard-deleting %d test datasources with prefix: %s", deletedIds.size(), prefix);
-
-                    return DataSource.delete("accountId like ?1", prefix + "%")
-                        .map(deleteCount -> {
-                            LOG.infof("Hard-deleted %d test datasources with prefix: %s", deleteCount, prefix);
-                            return CleanupTestDataSourcesResponse.newBuilder()
-                                .setSuccess(true)
-                                .setMessage("Deleted " + deleteCount + " datasource(s) matching prefix: " + prefix)
-                                .setDatasourcesDeleted((int) Math.min(deleteCount, Integer.MAX_VALUE))
-                                .addAllDeletedDatasourceIds(deletedIds)
-                                .build();
-                        });
-                })
-        );
-    }
-
-    /**
      * Lists available connector types (pre-seeded templates).
      *
      * @param request ListConnectorTypesRequest
@@ -539,6 +487,54 @@ public class DataSourceAdminServiceImpl extends MutinyDataSourceAdminServiceGrpc
                     .setConnector(toProtoConnector(connector))
                     .build());
             });
+    }
+
+    /**
+     * Hard-deletes all datasources for the given account ID.
+     * Intended for cleaning up test data.
+     *
+     * @param request CleanupTestDataSourcesRequest with account_id
+     * @return CleanupTestDataSourcesResponse with count and deleted IDs
+     */
+    @Override
+    public Uni<CleanupTestDataSourcesResponse> cleanupTestDataSources(CleanupTestDataSourcesRequest request) {
+        String accountId = request.getAccountId();
+        if (accountId == null || accountId.isBlank()) {
+            return Uni.createFrom().failure(Status.INVALID_ARGUMENT
+                .withDescription("account_id must not be blank")
+                .asRuntimeException());
+        }
+
+        LOG.infof("Cleaning up test datasources for accountId: %s", accountId);
+
+        return Panache.withTransaction(() ->
+            DataSource.find("select d.datasourceId from DataSource d where d.accountId = ?1", accountId)
+                .project(String.class)
+                .list()
+                .flatMap(ids -> {
+                    if (ids.isEmpty()) {
+                        LOG.infof("No test datasources found for accountId: %s", accountId);
+                        return Uni.createFrom().item(CleanupTestDataSourcesResponse.newBuilder()
+                            .setSuccess(true)
+                            .setMessage("No datasources found for accountId: " + accountId)
+                            .setDatasourcesDeleted(0)
+                            .build());
+                    }
+
+                    LOG.infof("Hard-deleting %d test datasources for accountId: %s", ids.size(), accountId);
+
+                    return DataSource.delete("datasourceId in ?1", ids)
+                        .map(deleteCount -> {
+                            LOG.infof("Hard-deleted %d test datasources for accountId: %s", deleteCount, accountId);
+                            return CleanupTestDataSourcesResponse.newBuilder()
+                                .setSuccess(true)
+                                .setMessage("Deleted " + deleteCount + " datasource(s) for accountId: " + accountId)
+                                .setDatasourcesDeleted((int) Math.min(deleteCount, Integer.MAX_VALUE))
+                                .addAllDeletedDatasourceIds(ids)
+                                .build();
+                        });
+                })
+        );
     }
 
     // ========================================================================
