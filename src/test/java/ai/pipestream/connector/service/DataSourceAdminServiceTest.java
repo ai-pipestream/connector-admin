@@ -6,6 +6,8 @@ import ai.pipestream.connector.intake.v1.*;
 import ai.pipestream.connector.v1.ManagementType;
 import ai.pipestream.data.v1.HydrationConfig;
 import com.google.protobuf.Struct;
+import io.grpc.Status;
+import io.grpc.StatusRuntimeException;
 import io.quarkus.grpc.GrpcClient;
 import io.quarkus.hibernate.reactive.panache.Panache;
 import io.quarkus.test.junit.QuarkusTest;
@@ -594,6 +596,151 @@ public class DataSourceAdminServiceTest {
             // Restore connector defaults so other tests aren't affected
             asserter.execute(() -> restoreConnectorDefaultsReactive(originalHolder[0]).replaceWithVoid());
         });
+    }
+
+    @Test
+    @RunOnVertxContext
+    void testCleanupTestDataSources_BlankIdFails(UniAsserter asserter) {
+        CleanupTestDataSourcesRequest request = CleanupTestDataSourcesRequest.newBuilder()
+            .setAccountId("")
+            .build();
+
+        asserter.assertThat(() -> dataSourceAdminService.cleanupTestDataSources(request)
+            .onItem().transform(response -> (Object) response)
+            .onFailure().recoverWithItem(failure -> failure), result -> {
+                assertInstanceOf(StatusRuntimeException.class, result,
+                    "Expected cleanupTestDataSources to fail with INVALID_ARGUMENT for blank accountId");
+                StatusRuntimeException exception = (StatusRuntimeException) result;
+                assertEquals(Status.Code.INVALID_ARGUMENT, exception.getStatus().getCode());
+            });
+    }
+
+    @Test
+    @RunOnVertxContext
+    void testCleanupTestDataSources_NoMatches(UniAsserter asserter) {
+        CleanupTestDataSourcesRequest request = CleanupTestDataSourcesRequest.newBuilder()
+            .setAccountId("test-non-existent-account")
+            .build();
+
+        asserter.assertThat(() -> dataSourceAdminService.cleanupTestDataSources(request), response -> {
+            assertTrue(response.getSuccess());
+            assertEquals(0, response.getDatasourcesDeleted());
+            assertEquals(0, response.getDeletedDatasourceIdsCount());
+        });
+    }
+
+    @Test
+    @RunOnVertxContext
+    void testCleanupTestDataSources_Success(UniAsserter asserter) {
+        String uniqueAccount = "test-cleanup-" + System.currentTimeMillis();
+        String secondConnectorId = "b1ffc0aa-0d1c-5f09-cc7e-7cc0ce491b22"; // file-crawler
+        java.util.Set<String> expectedDeletedDatasourceIds = new java.util.LinkedHashSet<>();
+
+        // Create two datasources for the same account
+        asserter.execute(() -> dataSourceAdminService.createDataSource(CreateDataSourceRequest.newBuilder()
+            .setAccountId(uniqueAccount)
+            .setConnectorId(TEST_CONNECTOR_ID)
+            .setName("DS1")
+            .setDriveName("drive1")
+            .build()).invoke(response ->
+                expectedDeletedDatasourceIds.add(response.getDatasource().getDatasourceId())
+            ).replaceWithVoid());
+
+        asserter.execute(() -> dataSourceAdminService.createDataSource(CreateDataSourceRequest.newBuilder()
+            .setAccountId(uniqueAccount)
+            .setConnectorId(secondConnectorId)
+            .setName("DS2")
+            .setDriveName("drive2")
+            .build()).invoke(response ->
+                expectedDeletedDatasourceIds.add(response.getDatasource().getDatasourceId())
+            ).replaceWithVoid());
+
+        // Cleanup
+        CleanupTestDataSourcesRequest request = CleanupTestDataSourcesRequest.newBuilder()
+            .setAccountId(uniqueAccount)
+            .build();
+
+        asserter.assertThat(() -> dataSourceAdminService.cleanupTestDataSources(request), response -> {
+            assertTrue(response.getSuccess());
+            assertEquals(2, response.getDatasourcesDeleted());
+            assertEquals(2, response.getDeletedDatasourceIdsCount());
+            assertEquals(
+                expectedDeletedDatasourceIds,
+                new java.util.LinkedHashSet<>(response.getDeletedDatasourceIdsList())
+            );
+
+            // Verify they are really gone (hard deleted)
+            ListDataSourcesRequest listRequest = ListDataSourcesRequest.newBuilder()
+                .setAccountId(uniqueAccount)
+                .build();
+
+            asserter.assertThat(() -> dataSourceAdminService.listDataSources(listRequest), listResponse -> {
+                assertEquals(0, listResponse.getDatasourcesCount());
+            });
+        });
+    }
+
+    @Test
+    @RunOnVertxContext
+    void testCleanupTestDataSources_OnlyDeletesExactAccount(UniAsserter asserter) {
+        String accountId = "test-exact-" + System.currentTimeMillis();
+        String otherAccountId = accountId + "-other";
+        java.util.Set<String> expectedDeletedIds = new java.util.LinkedHashSet<>();
+
+        // Create datasource for target account
+        asserter.execute(() -> dataSourceAdminService.createDataSource(CreateDataSourceRequest.newBuilder()
+            .setAccountId(accountId)
+            .setConnectorId(TEST_CONNECTOR_ID)
+            .setName("TargetDS")
+            .setDriveName("drive1")
+            .build()).invoke(response ->
+                expectedDeletedIds.add(response.getDatasource().getDatasourceId())
+            ).replaceWithVoid());
+
+        // Create datasource for "prefix-sharing" but different account
+        asserter.execute(() -> dataSourceAdminService.createDataSource(CreateDataSourceRequest.newBuilder()
+            .setAccountId(otherAccountId)
+            .setConnectorId(TEST_CONNECTOR_ID)
+            .setName("OtherDS")
+            .setDriveName("drive2")
+            .build()).replaceWithVoid());
+
+        // Cleanup target account
+        CleanupTestDataSourcesRequest request = CleanupTestDataSourcesRequest.newBuilder()
+            .setAccountId(accountId)
+            .build();
+
+        asserter.assertThat(() -> dataSourceAdminService.cleanupTestDataSources(request), response -> {
+            assertTrue(response.getSuccess());
+            assertEquals(1, response.getDatasourcesDeleted());
+            assertEquals(expectedDeletedIds, new java.util.LinkedHashSet<>(response.getDeletedDatasourceIdsList()));
+
+            // Verify only target was deleted
+            asserter.execute(() -> dataSourceAdminService.listDataSources(ListDataSourcesRequest.newBuilder()
+                .setAccountId(accountId)
+                .build()).invoke(listResponse -> assertEquals(0, listResponse.getDatasourcesCount())).replaceWithVoid());
+
+            asserter.execute(() -> dataSourceAdminService.listDataSources(ListDataSourcesRequest.newBuilder()
+                .setAccountId(otherAccountId)
+                .build()).invoke(listResponse -> assertEquals(1, listResponse.getDatasourcesCount())).replaceWithVoid());
+        });
+    }
+
+    @Test
+    @RunOnVertxContext
+    void testCleanupTestDataSources_InvalidPrefixFails(UniAsserter asserter) {
+        CleanupTestDataSourcesRequest request = CleanupTestDataSourcesRequest.newBuilder()
+            .setAccountId("not-a-test-account")
+            .build();
+
+        asserter.assertThat(() -> dataSourceAdminService.cleanupTestDataSources(request)
+            .onItem().transform(response -> (Object) response)
+            .onFailure().recoverWithItem(failure -> failure), result -> {
+                assertInstanceOf(StatusRuntimeException.class, result);
+                StatusRuntimeException exception = (StatusRuntimeException) result;
+                assertEquals(Status.Code.INVALID_ARGUMENT, exception.getStatus().getCode());
+                assertTrue(exception.getStatus().getDescription().contains("must start with \"test-\""));
+            });
     }
 
     // Helper methods - reactive versions for use in @RunOnVertxContext tests

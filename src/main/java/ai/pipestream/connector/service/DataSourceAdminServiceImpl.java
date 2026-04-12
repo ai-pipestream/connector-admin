@@ -4,6 +4,8 @@ import com.google.protobuf.Timestamp;
 import io.grpc.Status;
 import ai.pipestream.connector.entity.Connector;
 import ai.pipestream.connector.entity.DataSource;
+import ai.pipestream.connector.intake.v1.CleanupTestDataSourcesRequest;
+import ai.pipestream.connector.intake.v1.CleanupTestDataSourcesResponse;
 import ai.pipestream.connector.intake.v1.CreateDataSourceRequest;
 import ai.pipestream.connector.intake.v1.CreateDataSourceResponse;
 import ai.pipestream.connector.intake.v1.DataSourceConfig;
@@ -31,6 +33,7 @@ import ai.pipestream.connector.intake.v1.ValidateApiKeyRequest;
 import ai.pipestream.connector.intake.v1.ValidateApiKeyResponse;
 import ai.pipestream.connector.repository.DataSourceRepository;
 import ai.pipestream.connector.credentials.CredentialService;
+import io.quarkus.hibernate.reactive.panache.Panache;
 import io.quarkus.grpc.GrpcService;
 import io.smallrye.mutiny.Uni;
 import jakarta.inject.Inject;
@@ -484,6 +487,86 @@ public class DataSourceAdminServiceImpl extends MutinyDataSourceAdminServiceGrpc
                     .setConnector(toProtoConnector(connector))
                     .build());
             });
+    }
+
+    private static final String TEST_ACCOUNT_ID_PREFIX = "test-";
+
+    private boolean isProductionProfile() {
+        String profile = System.getProperty("quarkus.profile");
+        if (profile == null || profile.isBlank()) {
+            profile = System.getenv("QUARKUS_PROFILE");
+        }
+        if (profile == null || profile.isBlank()) {
+            return false;
+        }
+
+        String normalizedProfile = profile.trim().toLowerCase(java.util.Locale.ROOT);
+        return "prod".equals(normalizedProfile) || "production".equals(normalizedProfile);
+    }
+
+    private boolean isAllowedTestAccountId(String accountId) {
+        return accountId != null && accountId.startsWith(TEST_ACCOUNT_ID_PREFIX);
+    }
+
+    /**
+     * Hard-deletes all datasources for the given account ID.
+     * Intended for cleaning up test data.
+     *
+     * @param request CleanupTestDataSourcesRequest with account_id
+     * @return CleanupTestDataSourcesResponse with count and deleted IDs
+     */
+    @Override
+    public Uni<CleanupTestDataSourcesResponse> cleanupTestDataSources(CleanupTestDataSourcesRequest request) {
+        String accountId = request.getAccountId();
+        if (accountId == null || accountId.isBlank()) {
+            return Uni.createFrom().failure(Status.INVALID_ARGUMENT
+                .withDescription("account_id must not be blank")
+                .asRuntimeException());
+        }
+
+        if (isProductionProfile()) {
+            LOG.warnf("Rejected cleanupTestDataSources for accountId %s because the active profile is production", accountId);
+            return Uni.createFrom().failure(Status.FAILED_PRECONDITION
+                .withDescription("cleanupTestDataSources is disabled in production profiles")
+                .asRuntimeException());
+        }
+
+        if (!isAllowedTestAccountId(accountId)) {
+            return Uni.createFrom().failure(Status.INVALID_ARGUMENT
+                .withDescription("account_id must start with \"" + TEST_ACCOUNT_ID_PREFIX + "\" for test-data cleanup")
+                .asRuntimeException());
+        }
+
+        LOG.infof("Cleaning up test datasources for accountId: %s", accountId);
+
+        return Panache.withTransaction(() ->
+            DataSource.find("select d.datasourceId from DataSource d where d.accountId = ?1", accountId)
+                .project(String.class)
+                .list()
+                .flatMap(ids -> {
+                    if (ids.isEmpty()) {
+                        LOG.infof("No test datasources found for accountId: %s", accountId);
+                        return Uni.createFrom().item(CleanupTestDataSourcesResponse.newBuilder()
+                            .setSuccess(true)
+                            .setMessage("No datasources found for accountId: " + accountId)
+                            .setDatasourcesDeleted(0)
+                            .build());
+                    }
+
+                    LOG.infof("Hard-deleting %d test datasources for accountId: %s", ids.size(), accountId);
+
+                    return DataSource.delete("datasourceId in ?1", ids)
+                        .map(deleteCount -> {
+                            LOG.infof("Hard-deleted %d test datasources for accountId: %s", deleteCount, accountId);
+                            return CleanupTestDataSourcesResponse.newBuilder()
+                                .setSuccess(true)
+                                .setMessage("Deleted " + deleteCount + " datasource(s) for accountId: " + accountId)
+                                .setDatasourcesDeleted((int) Math.min(deleteCount, Integer.MAX_VALUE))
+                                .addAllDeletedDatasourceIds(ids)
+                                .build();
+                        });
+                })
+        );
     }
 
     // ========================================================================
