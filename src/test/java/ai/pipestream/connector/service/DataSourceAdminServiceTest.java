@@ -6,6 +6,8 @@ import ai.pipestream.connector.intake.v1.*;
 import ai.pipestream.connector.v1.ManagementType;
 import ai.pipestream.data.v1.HydrationConfig;
 import com.google.protobuf.Struct;
+import io.grpc.Status;
+import io.grpc.StatusRuntimeException;
 import io.quarkus.grpc.GrpcClient;
 import io.quarkus.hibernate.reactive.panache.Panache;
 import io.quarkus.test.junit.QuarkusTest;
@@ -604,8 +606,12 @@ public class DataSourceAdminServiceTest {
             .build();
 
         asserter.assertThat(() -> dataSourceAdminService.cleanupTestDataSources(request)
-            .onFailure().recoverWithUni(failure -> Uni.createFrom().nullItem()), response -> {
-                assertNull(response, "Expected INVALID_ARGUMENT failure");
+            .onItem().transform(response -> (Object) response)
+            .onFailure().recoverWithItem(failure -> failure), result -> {
+                assertInstanceOf(StatusRuntimeException.class, result,
+                    "Expected cleanupTestDataSources to fail with INVALID_ARGUMENT for blank accountId");
+                StatusRuntimeException exception = (StatusRuntimeException) result;
+                assertEquals(Status.Code.INVALID_ARGUMENT, exception.getStatus().getCode());
             });
     }
 
