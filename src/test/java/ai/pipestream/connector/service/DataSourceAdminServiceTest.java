@@ -634,6 +634,7 @@ public class DataSourceAdminServiceTest {
     void testCleanupTestDataSources_Success(UniAsserter asserter) {
         String uniqueAccount = "cleanup-test-" + System.currentTimeMillis();
         String secondConnectorId = "b1ffc0aa-0d1c-5f09-cc7e-7cc0ce491b22"; // file-crawler
+        java.util.Set<String> expectedDeletedDatasourceIds = new java.util.LinkedHashSet<>();
 
         // Create two datasources for the same account
         asserter.execute(() -> dataSourceAdminService.createDataSource(CreateDataSourceRequest.newBuilder()
@@ -641,14 +642,18 @@ public class DataSourceAdminServiceTest {
             .setConnectorId(TEST_CONNECTOR_ID)
             .setName("DS1")
             .setDriveName("drive1")
-            .build()).replaceWithVoid());
+            .build()).invoke(response ->
+                expectedDeletedDatasourceIds.add(response.getDatasource().getDatasourceId())
+            ).replaceWithVoid());
 
         asserter.execute(() -> dataSourceAdminService.createDataSource(CreateDataSourceRequest.newBuilder()
             .setAccountId(uniqueAccount)
             .setConnectorId(secondConnectorId)
             .setName("DS2")
             .setDriveName("drive2")
-            .build()).replaceWithVoid());
+            .build()).invoke(response ->
+                expectedDeletedDatasourceIds.add(response.getDatasource().getDatasourceId())
+            ).replaceWithVoid());
 
         // Cleanup
         CleanupTestDataSourcesRequest request = CleanupTestDataSourcesRequest.newBuilder()
@@ -659,6 +664,10 @@ public class DataSourceAdminServiceTest {
             assertTrue(response.getSuccess());
             assertEquals(2, response.getDatasourcesDeleted());
             assertEquals(2, response.getDeletedDatasourceIdsCount());
+            assertEquals(
+                expectedDeletedDatasourceIds,
+                new java.util.LinkedHashSet<>(response.getDeletedDatasourceIdsList())
+            );
 
             // Verify they are really gone (hard deleted)
             ListDataSourcesRequest listRequest = ListDataSourcesRequest.newBuilder()
@@ -668,6 +677,67 @@ public class DataSourceAdminServiceTest {
             asserter.assertThat(() -> dataSourceAdminService.listDataSources(listRequest), listResponse -> {
                 assertEquals(0, listResponse.getDatasourcesCount());
             });
+        });
+    }
+
+    @Test
+    @RunOnVertxContext
+    void testCleanupTestDataSources_DeletesAcrossAccountsWithSharedPrefix(UniAsserter asserter) {
+        String accountPrefix = "cleanup-prefix-" + System.currentTimeMillis();
+        String matchingAccountOne = accountPrefix + "-one";
+        String matchingAccountTwo = accountPrefix + "-two";
+        String unrelatedAccount = accountPrefix + "-unrelated-other";
+        java.util.Set<String> expectedDeletedDatasourceIds = new java.util.LinkedHashSet<>();
+
+        asserter.execute(() -> dataSourceAdminService.createDataSource(CreateDataSourceRequest.newBuilder()
+            .setAccountId(matchingAccountOne)
+            .setConnectorId(TEST_CONNECTOR_ID)
+            .setName("PrefixMatchDS1")
+            .setDriveName("drive-prefix-1")
+            .build()).invoke(response ->
+                expectedDeletedDatasourceIds.add(response.getDatasource().getDatasourceId())
+            ).replaceWithVoid());
+
+        asserter.execute(() -> dataSourceAdminService.createDataSource(CreateDataSourceRequest.newBuilder()
+            .setAccountId(matchingAccountTwo)
+            .setConnectorId(TEST_CONNECTOR_ID)
+            .setName("PrefixMatchDS2")
+            .setDriveName("drive-prefix-2")
+            .build()).invoke(response ->
+                expectedDeletedDatasourceIds.add(response.getDatasource().getDatasourceId())
+            ).replaceWithVoid());
+
+        asserter.execute(() -> dataSourceAdminService.createDataSource(CreateDataSourceRequest.newBuilder()
+            .setAccountId(unrelatedAccount)
+            .setConnectorId(TEST_CONNECTOR_ID)
+            .setName("NonMatchingDS")
+            .setDriveName("drive-other")
+            .build()).replaceWithVoid());
+
+        CleanupTestDataSourcesRequest request = CleanupTestDataSourcesRequest.newBuilder()
+            .setAccountId(accountPrefix)
+            .build();
+
+        asserter.assertThat(() -> dataSourceAdminService.cleanupTestDataSources(request), response -> {
+            assertTrue(response.getSuccess());
+            assertEquals(2, response.getDatasourcesDeleted());
+            assertEquals(2, response.getDeletedDatasourceIdsCount());
+            assertEquals(
+                expectedDeletedDatasourceIds,
+                new java.util.LinkedHashSet<>(response.getDeletedDatasourceIdsList())
+            );
+
+            asserter.assertThat(() -> dataSourceAdminService.listDataSources(ListDataSourcesRequest.newBuilder()
+                .setAccountId(matchingAccountOne)
+                .build()), listResponse -> assertEquals(0, listResponse.getDatasourcesCount()));
+
+            asserter.assertThat(() -> dataSourceAdminService.listDataSources(ListDataSourcesRequest.newBuilder()
+                .setAccountId(matchingAccountTwo)
+                .build()), listResponse -> assertEquals(0, listResponse.getDatasourcesCount()));
+
+            asserter.assertThat(() -> dataSourceAdminService.listDataSources(ListDataSourcesRequest.newBuilder()
+                .setAccountId(unrelatedAccount)
+                .build()), listResponse -> assertEquals(1, listResponse.getDatasourcesCount()));
         });
     }
 
