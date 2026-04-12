@@ -489,6 +489,25 @@ public class DataSourceAdminServiceImpl extends MutinyDataSourceAdminServiceGrpc
             });
     }
 
+    private static final String TEST_ACCOUNT_ID_PREFIX = "test-";
+
+    private boolean isProductionProfile() {
+        String profile = System.getProperty("quarkus.profile");
+        if (profile == null || profile.isBlank()) {
+            profile = System.getenv("QUARKUS_PROFILE");
+        }
+        if (profile == null || profile.isBlank()) {
+            return false;
+        }
+
+        String normalizedProfile = profile.trim().toLowerCase(java.util.Locale.ROOT);
+        return "prod".equals(normalizedProfile) || "production".equals(normalizedProfile);
+    }
+
+    private boolean isAllowedTestAccountId(String accountId) {
+        return accountId != null && accountId.startsWith(TEST_ACCOUNT_ID_PREFIX);
+    }
+
     /**
      * Hard-deletes all datasources for the given account ID.
      * Intended for cleaning up test data.
@@ -502,6 +521,19 @@ public class DataSourceAdminServiceImpl extends MutinyDataSourceAdminServiceGrpc
         if (accountId == null || accountId.isBlank()) {
             return Uni.createFrom().failure(Status.INVALID_ARGUMENT
                 .withDescription("account_id must not be blank")
+                .asRuntimeException());
+        }
+
+        if (isProductionProfile()) {
+            LOG.warnf("Rejected cleanupTestDataSources for accountId %s because the active profile is production", accountId);
+            return Uni.createFrom().failure(Status.FAILED_PRECONDITION
+                .withDescription("cleanupTestDataSources is disabled in production profiles")
+                .asRuntimeException());
+        }
+
+        if (!isAllowedTestAccountId(accountId)) {
+            return Uni.createFrom().failure(Status.INVALID_ARGUMENT
+                .withDescription("account_id must start with \"" + TEST_ACCOUNT_ID_PREFIX + "\" for test-data cleanup")
                 .asRuntimeException());
         }
 
