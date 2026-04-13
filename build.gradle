@@ -30,7 +30,7 @@ scmVersion {
 pipestreamProtos {
     sourceMode = 'git-proto-workspace'
     gitRepo = "https://github.com/ai-pipestream/pipestream-protos.git"
-    gitRef = "proto/cleanup-test-datasources"
+    gitRef = "main"
     generateMutiny = true
     generateDescriptors = true
 
