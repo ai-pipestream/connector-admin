@@ -27,6 +27,7 @@ import com.google.protobuf.util.JsonFormat;
 import io.grpc.Status;
 import io.quarkus.grpc.GrpcService;
 import io.smallrye.mutiny.Uni;
+import ai.pipestream.server.vertx.RunOnVertxContext;
 import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
 
@@ -39,6 +40,7 @@ import java.util.List;
  * Proto Definition: intake/proto/ai/pipestream/connector/intake/v1/connector_registration.proto
  */
 @GrpcService
+@RunOnVertxContext
 public class ConnectorRegistrationServiceImpl extends MutinyConnectorRegistrationServiceGrpc.ConnectorRegistrationServiceImplBase {
 
     private static final Logger LOG = Logger.getLogger(ConnectorRegistrationServiceImpl.class);

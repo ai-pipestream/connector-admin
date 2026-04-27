@@ -36,6 +36,7 @@ import ai.pipestream.connector.credentials.CredentialService;
 import io.quarkus.hibernate.reactive.panache.Panache;
 import io.quarkus.grpc.GrpcService;
 import io.smallrye.mutiny.Uni;
+import ai.pipestream.server.vertx.RunOnVertxContext;
 import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
 
@@ -58,6 +59,7 @@ import java.util.stream.Collectors;
  * Proto Definition: intake/proto/ai/pipestream/connector/intake/v1/connector_intake_service.proto
  */
 @GrpcService
+@RunOnVertxContext
 public class DataSourceAdminServiceImpl extends MutinyDataSourceAdminServiceGrpc.DataSourceAdminServiceImplBase {
 
     private static final Logger LOG = Logger.getLogger(DataSourceAdminServiceImpl.class);
