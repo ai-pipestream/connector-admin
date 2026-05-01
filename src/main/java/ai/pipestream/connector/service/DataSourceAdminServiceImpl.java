@@ -99,57 +99,75 @@ public class DataSourceAdminServiceImpl extends MutinyDataSourceAdminServiceGrpc
             return Uni.createFrom().failure(new IllegalArgumentException("Drive name is required"));
         }
 
-        // Verify connector exists, then validate account, then create datasource
-        return dataSourceRepository.findConnectorById(request.getConnectorId())
-            .flatMap(connector -> {
-                if (connector == null) {
-                    return Uni.createFrom().failure(Status.NOT_FOUND
-                        .withDescription("Connector type not found: " + request.getConnectorId())
-                        .asRuntimeException());
+        final String apiKey = apiKeyUtil.generateApiKey();
+        final String apiKeyHash = apiKeyUtil.hashApiKey(apiKey);
+        final String metadataJson = request.getMetadataMap().isEmpty()
+            ? "{}"
+            : mapToJson(request.getMetadataMap());
+
+        // The outbound account-validation gRPC call completes its Uni on
+        // a grpc-default-executor thread (no Vert.x context). Hibernate
+        // Reactive's Panache.withTransaction synchronously calls
+        // SessionOperations.vertxContext() at invocation time and throws
+        // IllegalStateException if no context is current. Capture the
+        // handler-entry context and emitOn it before invoking Panache, so
+        // the withTransaction body and its session-open run on the
+        // duplicated Vert.x context Quarkus put us on at handler entry.
+        // The outbound account-validation gRPC call completes its Uni on
+        // a grpc-default-executor thread (no Vert.x context). Hibernate
+        // Reactive's Panache.withTransaction synchronously calls
+        // SessionOperations.vertxContext() at invocation time and throws
+        // IllegalStateException if no context is current. Capture the
+        // handler-entry context and emitOn it before invoking Panache, so
+        // the withTransaction body and its session-open run on the
+        // duplicated Vert.x context Quarkus put us on at handler entry.
+        // Regression coverage: DataSourceAdminOffEventLoopAsyncTest.
+        final io.vertx.core.Context callerCtx = io.vertx.core.Vertx.currentContext();
+
+        return accountValidationService.validateAccountExistsAndActive(request.getAccountId())
+            .emitOn(runnable -> {
+                if (callerCtx != null) {
+                    callerCtx.runOnContext(v -> runnable.run());
+                } else {
+                    runnable.run();
                 }
-                return accountValidationService.validateAccountExistsAndActive(request.getAccountId())
-                    .replaceWith(connector);
             })
-            .flatMap(connector -> {
-                // Generate API key
-                String apiKey = apiKeyUtil.generateApiKey();
-                String apiKeyHash = apiKeyUtil.hashApiKey(apiKey);
-
-                // Build metadata JSON from request
-                String metadataJson = "{}";
-                if (!request.getMetadataMap().isEmpty()) {
-                    metadataJson = mapToJson(request.getMetadataMap());
-                }
-
-                // Create datasource (reactive)
-                return dataSourceRepository.createDataSource(
-                    request.getAccountId(),
-                    request.getConnectorId(),
-                    request.getName(),
-                    apiKeyHash,
-                    request.getDriveName(),
-                    metadataJson
-                )
-                .flatMap(datasource -> {
-                    if (datasource == null) {
-                        return Uni.createFrom().failure(Status.ALREADY_EXISTS
-                            .withDescription("DataSource already exists for account " + request.getAccountId() +
-                                             " and connector " + request.getConnectorId())
-                            .asRuntimeException());
-                    }
-
-                    LOG.infof("Created datasource %s for account %s with connector %s",
-                        datasource.datasourceId, request.getAccountId(), request.getConnectorId());
-
-                    // Build a DataSource proto with API key included (only returned at creation time)
-                    ai.pipestream.connector.intake.v1.DataSource dsProto = toProtoDataSourceWithApiKey(datasource, apiKey);
-
-                    return Uni.createFrom().item(CreateDataSourceResponse.newBuilder()
-                        .setSuccess(true)
-                        .setDatasource(dsProto)
-                        .setMessage("DataSource created successfully")
-                        .build());
-                });
+            .flatMap(v -> Panache.withTransaction(() ->
+                dataSourceRepository.findConnectorById(request.getConnectorId())
+                    .flatMap(connector -> {
+                        if (connector == null) {
+                            return Uni.<DataSource>createFrom().failure(Status.NOT_FOUND
+                                .withDescription("Connector type not found: " + request.getConnectorId())
+                                .asRuntimeException());
+                        }
+                        return dataSourceRepository.createDataSource(
+                                request.getAccountId(),
+                                request.getConnectorId(),
+                                request.getName(),
+                                apiKeyHash,
+                                request.getDriveName(),
+                                metadataJson)
+                            .flatMap(datasource -> {
+                                if (datasource == null) {
+                                    return Uni.<DataSource>createFrom().failure(Status.ALREADY_EXISTS
+                                        .withDescription("DataSource already exists for account "
+                                            + request.getAccountId() + " and connector " + request.getConnectorId())
+                                        .asRuntimeException());
+                                }
+                                return Uni.createFrom().item(datasource);
+                            });
+                    })
+            ))
+            .map(datasource -> {
+                LOG.infof("Created datasource %s for account %s with connector %s",
+                    datasource.datasourceId, request.getAccountId(), request.getConnectorId());
+                ai.pipestream.connector.intake.v1.DataSource dsProto =
+                    toProtoDataSourceWithApiKey(datasource, apiKey);
+                return CreateDataSourceResponse.newBuilder()
+                    .setSuccess(true)
+                    .setDatasource(dsProto)
+                    .setMessage("DataSource created successfully")
+                    .build();
             });
     }
 

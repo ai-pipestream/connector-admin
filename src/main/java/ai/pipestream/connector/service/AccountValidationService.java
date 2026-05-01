@@ -1,14 +1,18 @@
 package ai.pipestream.connector.service;
 
-import ai.pipestream.quarkus.dynamicgrpc.DynamicGrpcClientFactory;
-import ai.pipestream.repository.account.v1.MutinyAccountServiceGrpc;
+import ai.pipestream.repository.account.v1.AccountServiceGrpc;
 import ai.pipestream.repository.account.v1.GetAccountRequest;
 import ai.pipestream.repository.account.v1.GetAccountResponse;
+import io.grpc.Channel;
+import io.grpc.stub.StreamObserver;
+import io.quarkus.grpc.GrpcClient;
 import io.smallrye.mutiny.Uni;
+import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
+
+import java.util.concurrent.CompletableFuture;
 
 /**
  * Validates accounts by calling account-manager over gRPC.
@@ -33,10 +37,27 @@ import org.eclipse.microprofile.config.inject.ConfigProperty;
 public class AccountValidationService {
 
     private static final Logger LOG = Logger.getLogger(AccountValidationService.class);
-    private static final String ACCOUNT_SERVICE_NAME = "account-manager";
 
-    @Inject
-    DynamicGrpcClientFactory grpcClientFactory;
+    /**
+     * Stock Quarkus gRPC channel for {@code account-manager}. Built once at
+     * app start and lives the JVM lifetime — no in-house
+     * DynamicGrpcClientFactory cache, no TTL, no eviction. Quarkus's
+     * {@link GrpcClient} only permits Mutiny stubs, blocking stubs, or a
+     * raw {@link Channel}; the StreamObserver-based async stub
+     * ({@code AccountServiceStub}) is built once from the channel in
+     * {@link #init()}. Async stub gives non-blocking call sites, so the
+     * gRPC handler thread is not held during the round-trip — much
+     * higher throughput than the blocking stub.
+     */
+    @GrpcClient("account-manager")
+    Channel accountChannel;
+
+    private AccountServiceGrpc.AccountServiceStub accountStub;
+
+    @PostConstruct
+    void init() {
+        this.accountStub = AccountServiceGrpc.newStub(accountChannel);
+    }
 
     // Test-only stub: enabled in %test profile to avoid external dependency in unit tests
     @ConfigProperty(name = "connector.admin.account.validation.stub", defaultValue = "false")
@@ -88,13 +109,7 @@ public class AccountValidationService {
             return Uni.createFrom().voidItem();
         }
 
-        return grpcClientFactory
-            .getClient(ACCOUNT_SERVICE_NAME, MutinyAccountServiceGrpc::newMutinyStub)
-            .flatMap(stub -> stub.getAccount(
-                GetAccountRequest.newBuilder()
-                    .setAccountId(accountId)
-                    .build()
-            ))
+        return getAccount(accountId)
             .flatMap((GetAccountResponse resp) -> {
                 if (!resp.getAccount().getActive()) {
                     LOG.warnf("Account %s exists but is inactive", accountId);
@@ -107,14 +122,13 @@ public class AccountValidationService {
                 LOG.debugf("Account %s validated successfully", accountId);
                 return Uni.createFrom().voidItem();
             })
-            .onFailure(io.grpc.StatusRuntimeException.class)
-            .transform(throwable -> {
-                // Check if it's NOT_FOUND from account service
-                if (throwable.getStatus().getCode() == io.grpc.Status.Code.NOT_FOUND) {
+            .onFailure(io.grpc.StatusRuntimeException.class).transform(throwable -> {
+                io.grpc.StatusRuntimeException sre = (io.grpc.StatusRuntimeException) throwable;
+                if (sre.getStatus().getCode() == io.grpc.Status.Code.NOT_FOUND) {
                     LOG.warnf("Account not found: %s", accountId);
                     return io.grpc.Status.INVALID_ARGUMENT
-                        .withDescription("Account does not exist: " + accountId)
-                        .asRuntimeException();
+                            .withDescription("Account does not exist: " + accountId)
+                            .asRuntimeException();
                 }
                 // Propagate other gRPC errors (UNAVAILABLE, etc.)
                 LOG.errorf(throwable, "Failed to validate account %s", accountId);
@@ -159,24 +173,52 @@ public class AccountValidationService {
             return Uni.createFrom().voidItem();
         }
 
-        return grpcClientFactory
-            .getClient(ACCOUNT_SERVICE_NAME, MutinyAccountServiceGrpc::newMutinyStub)
-            .flatMap(stub -> stub.getAccount(
-                GetAccountRequest.newBuilder()
-                    .setAccountId(accountId)
-                    .build()
-            ))
+        return getAccount(accountId)
             .replaceWithVoid()
-            .onFailure(io.grpc.StatusRuntimeException.class)
-            .transform(throwable -> {
-                if (throwable.getStatus().getCode() == io.grpc.Status.Code.NOT_FOUND) {
+            .onFailure(io.grpc.StatusRuntimeException.class).transform(throwable -> {
+                io.grpc.StatusRuntimeException sre = (io.grpc.StatusRuntimeException) throwable;
+                if (sre.getStatus().getCode() == io.grpc.Status.Code.NOT_FOUND) {
                     LOG.warnf("Account not found: %s", accountId);
                     return io.grpc.Status.INVALID_ARGUMENT
-                        .withDescription("Account does not exist: " + accountId)
-                        .asRuntimeException();
+                            .withDescription("Account does not exist: " + accountId)
+                            .asRuntimeException();
                 }
                 LOG.errorf(throwable, "Failed to validate account %s", accountId);
                 return throwable;
             });
+    }
+
+    /**
+     * Bridges the StreamObserver-based async stub to a {@link Uni}. The
+     * gRPC call's {@code io.grpc.Context} is captured synchronously inside
+     * this method when {@code accountStub.getAccount(req, observer)} is
+     * invoked — no async stub-resolution gap, no Mutiny operator that
+     * re-emits on a different thread. Non-blocking: the calling thread
+     * returns immediately; the StreamObserver callbacks fire on gRPC's
+     * internal threads, complete the future, and the upstream Mutiny
+     * chain resumes from there.
+     */
+    private Uni<GetAccountResponse> getAccount(String accountId) {
+        GetAccountRequest request = GetAccountRequest.newBuilder()
+            .setAccountId(accountId)
+            .build();
+        CompletableFuture<GetAccountResponse> future = new CompletableFuture<>();
+        accountStub.getAccount(request, new StreamObserver<>() {
+            @Override
+            public void onNext(GetAccountResponse value) {
+                future.complete(value);
+            }
+
+            @Override
+            public void onError(Throwable t) {
+                future.completeExceptionally(t);
+            }
+
+            @Override
+            public void onCompleted() {
+                // no-op for unary
+            }
+        });
+        return Uni.createFrom().completionStage(future);
     }
 }
