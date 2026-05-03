@@ -306,7 +306,13 @@ public class DataSourceAdminServiceImpl extends MutinyDataSourceAdminServiceGrpc
 
         int pageSize = request.getPageSize() > 0 ? request.getPageSize() : 50;
 
-        // Fetch datasources and count in parallel
+        // Fetch datasources and count SEQUENTIALLY. The previous version ran
+        // both Unis in parallel via Uni.combine().all() — each opened its own
+        // Panache.withSession on the same Vert.x context, which Hibernate
+        // Reactive does not support. The losing Uni would surface an
+        // intermittent NoSuchElementException (HR's internal session lookup
+        // is Optional-based) and the whole call would fail with
+        // gRPC UNKNOWN. Sequential keeps one session open at a time.
         Uni<List<DataSource>> datasourcesUni;
         if (request.getAccountId() != null && !request.getAccountId().isEmpty()) {
             datasourcesUni = dataSourceRepository.listByAccount(
@@ -323,40 +329,37 @@ public class DataSourceAdminServiceImpl extends MutinyDataSourceAdminServiceGrpc
             );
         }
 
-        Uni<Long> countUni = dataSourceRepository.countDataSources(
-            request.getAccountId(),
-            request.getIncludeInactive()
-        );
-
         // Capture offset and pageSize in effectively final variables for lambda
         final int finalOffset = offset;
         final int finalPageSize = pageSize;
-        
-        return Uni.combine().all().unis(datasourcesUni, countUni).asTuple().map(tuple -> {
-            List<DataSource> datasources = tuple.getItem1();
-            Long totalCount = tuple.getItem2();
 
-            // Determine next page token
-            String nextPageToken = "";
-            List<DataSource> finalDatasources = datasources;
-            if (datasources.size() > finalPageSize) {
-                finalDatasources = datasources.subList(0, finalPageSize);
-                nextPageToken = String.valueOf(finalOffset + finalPageSize);
-            }
+        return datasourcesUni.flatMap(datasources ->
+            dataSourceRepository.countDataSources(
+                    request.getAccountId(),
+                    request.getIncludeInactive())
+                .map(totalCount -> {
+                    // Determine next page token
+                    String nextPageToken = "";
+                    List<DataSource> finalDatasources = datasources;
+                    if (datasources.size() > finalPageSize) {
+                        finalDatasources = datasources.subList(0, finalPageSize);
+                        nextPageToken = String.valueOf(finalOffset + finalPageSize);
+                    }
 
-            ListDataSourcesResponse.Builder builder = ListDataSourcesResponse.newBuilder()
-                .setTotalCount((int) Math.min(totalCount, Integer.MAX_VALUE));
+                    ListDataSourcesResponse.Builder builder = ListDataSourcesResponse.newBuilder()
+                        .setTotalCount((int) Math.min(totalCount, Integer.MAX_VALUE));
 
-            if (!nextPageToken.isEmpty()) {
-                builder.setNextPageToken(nextPageToken);
-            }
+                    if (!nextPageToken.isEmpty()) {
+                        builder.setNextPageToken(nextPageToken);
+                    }
 
-            for (DataSource ds : finalDatasources) {
-                builder.addDatasources(toProtoDataSource(ds));
-            }
+                    for (DataSource ds : finalDatasources) {
+                        builder.addDatasources(toProtoDataSource(ds));
+                    }
 
-            return builder.build();
-        });
+                    return builder.build();
+                })
+        );
     }
 
     /**
