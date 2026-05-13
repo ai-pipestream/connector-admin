@@ -1,7 +1,5 @@
 package ai.pipestream.connector.service;
 
-import ai.pipestream.connector.intake.v1.CleanupTestDataSourcesRequest;
-import ai.pipestream.connector.intake.v1.CleanupTestDataSourcesResponse;
 import ai.pipestream.connector.intake.v1.CreateDataSourceRequest;
 import ai.pipestream.connector.intake.v1.CreateDataSourceResponse;
 import ai.pipestream.connector.intake.v1.DeleteDataSourceRequest;
@@ -21,6 +19,9 @@ import ai.pipestream.connector.intake.v1.ValidateApiKeyRequest;
 import ai.pipestream.connector.intake.v1.ValidateApiKeyResponse;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
+import io.grpc.Status;
+import io.grpc.StatusRuntimeException;
+import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.common.http.TestHTTPResource;
 import io.quarkus.test.junit.QuarkusIntegrationTest;
 import org.junit.jupiter.api.AfterEach;
@@ -34,6 +35,7 @@ import java.net.URL;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
  * Integration tests for the full DataSource document-upload lifecycle.
@@ -57,25 +59,21 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li>Rotating the API key and confirming the old key is invalidated.</li>
  *   <li>Disabling and re-enabling the DataSource (maintenance-window simulation).</li>
  *   <li>Soft-deleting the DataSource.</li>
- *   <li>Cleaning up all test datasources for the test account.</li>
  * </ol>
  *
- * <p>The test account ID is prefixed with {@code "test-"} as required by
- * {@code CleanupTestDataSources}.
+ * <p>Account validation is exercised through pipestream-wiremock-server, not
+ * connector-admin's in-process test stub.
  */
 @QuarkusIntegrationTest
+@QuarkusTestResource(ConnectorAdminIntegrationTestResource.class)
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class DataSourceLifecycleIT {
 
     /** Pre-seeded S3 connector ID (Flyway V1 migration). */
     private static final String S3_CONNECTOR_ID = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11";
 
-    /**
-     * Unique test account ID — must start with {@code "test-"} so that
-     * {@link #cleanup_allTestDataSourcesForAccount} is permitted to delete it.
-     */
-    private static final String TEST_ACCOUNT_ID =
-            "test-lifecycle-it-" + System.currentTimeMillis();
+    /** Active account seeded by pipestream-wiremock-server's AccountManagerMock. */
+    private static final String TEST_ACCOUNT_ID = "valid-account";
 
     @TestHTTPResource
     URL url;
@@ -126,6 +124,44 @@ class DataSourceLifecycleIT {
                 .isGreaterThanOrEqualTo(1);
     }
 
+    @Test
+    @Order(2)
+    void step2_createDataSource_rejectsInactiveAccount() {
+        StatusRuntimeException ex = assertThrows(StatusRuntimeException.class, () ->
+                stub.createDataSource(
+                        CreateDataSourceRequest.newBuilder()
+                                .setAccountId("inactive-account")
+                                .setConnectorId(S3_CONNECTOR_ID)
+                                .setName("Inactive Account DataSource")
+                                .setDriveName("it-test-drive")
+                                .build()
+                ).await().indefinitely()
+        );
+
+        assertThat(ex.getStatus().getCode())
+                .as("inactive accounts must not be allowed to create datasources")
+                .isEqualTo(Status.Code.INVALID_ARGUMENT);
+    }
+
+    @Test
+    @Order(3)
+    void step3_createDataSource_rejectsMissingAccount() {
+        StatusRuntimeException ex = assertThrows(StatusRuntimeException.class, () ->
+                stub.createDataSource(
+                        CreateDataSourceRequest.newBuilder()
+                                .setAccountId("nonexistent")
+                                .setConnectorId(S3_CONNECTOR_ID)
+                                .setName("Missing Account DataSource")
+                                .setDriveName("it-test-drive")
+                                .build()
+                ).await().indefinitely()
+        );
+
+        assertThat(ex.getStatus().getCode())
+                .as("missing accounts must not be allowed to create datasources")
+                .isEqualTo(Status.Code.INVALID_ARGUMENT);
+    }
+
     // =========================================================================
     // 2. DataSource creation — API key is returned once
     // =========================================================================
@@ -138,8 +174,8 @@ class DataSourceLifecycleIT {
      * string and stored as an Argon2id hash; the plaintext is returned only here.
      */
     @Test
-    @Order(2)
-    void step2_createDataSource_returnsOneTimeApiKey() {
+    @Order(4)
+    void step4_createDataSource_returnsOneTimeApiKey() {
         CreateDataSourceResponse response = stub.createDataSource(
                 CreateDataSourceRequest.newBuilder()
                         .setAccountId(TEST_ACCOUNT_ID)
@@ -176,7 +212,7 @@ class DataSourceLifecycleIT {
     // =========================================================================
 
     /**
-     * Validates the API key returned by {@link #step2_createDataSource_returnsOneTimeApiKey}.
+     * Validates the API key returned by {@link #step4_createDataSource_returnsOneTimeApiKey}.
      *
      * <p>This is the exact call that the {@code connector-intake} service makes when a
      * connector submits a document for ingestion.  A {@code valid=true} response means
@@ -185,8 +221,8 @@ class DataSourceLifecycleIT {
      * hydration policy, etc.).
      */
     @Test
-    @Order(3)
-    void step3_validateApiKey_authorisesDocumentUpload() {
+    @Order(5)
+    void step5_validateApiKey_authorisesDocumentUpload() {
         ValidateApiKeyResponse response = stub.validateApiKey(
                 ValidateApiKeyRequest.newBuilder()
                         .setDatasourceId(datasourceId)
@@ -220,8 +256,8 @@ class DataSourceLifecycleIT {
      * Confirms that a wrong API key is rejected, preventing unauthorised uploads.
      */
     @Test
-    @Order(4)
-    void step4_validateApiKey_wrongKey_rejectsUpload() {
+    @Order(6)
+    void step6_validateApiKey_wrongKey_rejectsUpload() {
         ValidateApiKeyResponse response = stub.validateApiKey(
                 ValidateApiKeyRequest.newBuilder()
                         .setDatasourceId(datasourceId)
@@ -243,8 +279,8 @@ class DataSourceLifecycleIT {
      * the initial creation response — callers cannot recover the plaintext key.
      */
     @Test
-    @Order(5)
-    void step5_getDataSource_doesNotExposeApiKey() {
+    @Order(7)
+    void step7_getDataSource_doesNotExposeApiKey() {
         GetDataSourceResponse response = stub.getDataSource(
                 GetDataSourceRequest.newBuilder()
                         .setDatasourceId(datasourceId)
@@ -266,8 +302,8 @@ class DataSourceLifecycleIT {
      * Verifies that the newly created DataSource appears in the account's list.
      */
     @Test
-    @Order(6)
-    void step6_listDataSources_showsCreatedDatasource() {
+    @Order(8)
+    void step8_listDataSources_showsCreatedDatasource() {
         ListDataSourcesResponse response = stub.listDataSources(
                 ListDataSourcesRequest.newBuilder()
                         .setAccountId(TEST_ACCOUNT_ID)
@@ -288,8 +324,8 @@ class DataSourceLifecycleIT {
      * Updates the DataSource name and metadata and confirms the changes persist.
      */
     @Test
-    @Order(7)
-    void step7_updateDataSource_persistsChanges() {
+    @Order(9)
+    void step9_updateDataSource_persistsChanges() {
         stub.updateDataSource(
                 UpdateDataSourceRequest.newBuilder()
                         .setDatasourceId(datasourceId)
@@ -323,8 +359,8 @@ class DataSourceLifecycleIT {
      * After rotation the connector configuration must be updated with the new key.
      */
     @Test
-    @Order(8)
-    void step8_rotateApiKey_invalidatesOldKeyAndActivatesNew() {
+    @Order(10)
+    void step10_rotateApiKey_invalidatesOldKeyAndActivatesNew() {
         String oldKey = currentApiKey;
 
         RotateApiKeyResponse rotateResponse = stub.rotateApiKey(
@@ -381,8 +417,8 @@ class DataSourceLifecycleIT {
      * at any time.
      */
     @Test
-    @Order(9)
-    void step9_disableAndReEnableDataSource_controlsUploadAccess() {
+    @Order(11)
+    void step11_disableAndReEnableDataSource_controlsUploadAccess() {
         // Disable
         SetDataSourceStatusResponse disableResponse = stub.setDataSourceStatus(
                 SetDataSourceStatusRequest.newBuilder()
@@ -444,8 +480,8 @@ class DataSourceLifecycleIT {
      * {@code CleanupTestDataSources} method (test environments only).
      */
     @Test
-    @Order(10)
-    void step10_deleteDataSource_marksInactive() {
+    @Order(12)
+    void step12_deleteDataSource_marksInactive() {
         stub.deleteDataSource(
                 DeleteDataSourceRequest.newBuilder()
                         .setDatasourceId(datasourceId)
@@ -476,43 +512,4 @@ class DataSourceLifecycleIT {
                 .isFalse();
     }
 
-    // =========================================================================
-    // 10. Cleanup all test datasources for the account
-    // =========================================================================
-
-    /**
-     * Hard-deletes all test datasources for the test account using
-     * {@code CleanupTestDataSources}.
-     *
-     * <p>This method is only available in non-production profiles and requires the
-     * account ID to start with {@code "test-"}.  It is used here to ensure the
-     * database is clean after the test suite.
-     */
-    @Test
-    @Order(11)
-    void step11_cleanupTestDataSources_removesAllTestData() {
-        CleanupTestDataSourcesResponse response = stub.cleanupTestDataSources(
-                CleanupTestDataSourcesRequest.newBuilder()
-                        .setAccountId(TEST_ACCOUNT_ID)
-                        .build()
-        ).await().indefinitely();
-
-        assertThat(response.getSuccess()).as("cleanup should succeed").isTrue();
-        assertThat(response.getDatasourcesDeleted())
-                .as("at least the datasource created in step 2 should be deleted")
-                .isGreaterThanOrEqualTo(1);
-
-        // Confirm the datasource is now gone
-        GetDataSourceResponse getAfterCleanup = stub.getDataSource(
-                GetDataSourceRequest.newBuilder()
-                        .setDatasourceId(datasourceId)
-                        .build()
-        ).await().indefinitely();
-
-        // After hard delete via cleanup, the datasource record is gone
-        // GetDataSource should return empty / not-found response
-        assertThat(getAfterCleanup.hasDatasource())
-                .as("datasource should no longer exist after hard cleanup")
-                .isFalse();
-    }
 }

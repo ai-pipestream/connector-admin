@@ -84,11 +84,12 @@ external infrastructure is needed.
 ### Running integration tests (against the packaged JAR)
 
 ```bash
-./gradlew integrationTest
+./gradlew quarkusIntTest
 ```
 
-The `integrationTest` task builds the Uber-JAR, starts it in a child process, and runs
-tests annotated with `@QuarkusIntegrationTest` against it.
+The `quarkusIntTest` task builds the application, starts it in a child process, and
+runs tests annotated with `@QuarkusIntegrationTest` against it. The `integrationTest`
+task only assembles integration-test classes in this Gradle build.
 
 ---
 
@@ -192,7 +193,7 @@ grpcurl -plaintext -d "{
 | `GetDataSource` | `datasource_id` | `datasource` (no API key) |
 | `UpdateDataSource` | `datasource_id` + fields to change | updated `datasource` |
 | `ListDataSources` | optional `account_id`, `page_size`, `page_token` | paginated list |
-| `DeleteDataSource` | `datasource_id`; optional `hard_delete` (bool) | soft-deletes by default; pass `hard_delete: true` to permanently remove |
+| `DeleteDataSource` | `datasource_id` | soft-deletes the datasource and blocks future API-key validation |
 | `ValidateApiKey` | `datasource_id`, `api_key` | `valid` bool + merged `DataSourceConfig` |
 | `RotateApiKey` | `datasource_id` | one-time `new_api_key` |
 | `SetDataSourceStatus` | `datasource_id`, `active` | `success` bool |

@@ -3,9 +3,8 @@ package ai.pipestream.connector.repository;
 import ai.pipestream.connector.entity.Connector;
 import ai.pipestream.connector.entity.ConnectorConfigSchema;
 import ai.pipestream.connector.entity.DataSource;
-import io.quarkus.hibernate.reactive.panache.Panache;
-import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.transaction.Transactional;
 import org.jboss.logging.Logger;
 
 import java.nio.charset.StandardCharsets;
@@ -14,307 +13,191 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Repository for connector registration operations with fully reactive database access.
- * <ul>
- *   <li>CRUD for {@link ConnectorConfigSchema}</li>
- *   <li>Updating connector type defaults (Tier 1 defaults + UI metadata)</li>
- *   <li>Assigning a connector's referenced custom config schema</li>
- * </ul>
- * <p>
- * <strong>Reactive Implementation:</strong>
- * All methods return {@link Uni} for fully non-blocking database operations using
- * Hibernate Reactive Panache. Transactions are handled via {@link Panache#withTransaction(java.util.function.Supplier)}.
- * This ensures the entire stack is reactive from gRPC service → repository → database.
+ * Repository for connector registration operations using Hibernate ORM Panache.
  */
 @ApplicationScoped
 public class ConnectorRegistrationRepository {
 
     private static final Logger LOG = Logger.getLogger(ConnectorRegistrationRepository.class);
 
-    // ========================================================================
-    // ConnectorConfigSchema CRUD
-    // ========================================================================
-
-    /**
-     * Finds a schema by its ID (reactive).
-     */
-    public Uni<ConnectorConfigSchema> findSchemaById(String schemaId) {
-        return Panache.withSession(() -> ConnectorConfigSchema.<ConnectorConfigSchema>findById(schemaId));
+    public ConnectorConfigSchema findSchemaById(String schemaId) {
+        return ConnectorConfigSchema.findById(schemaId);
     }
 
-    /**
-     * Finds a schema by connector ID and version (reactive).
-     */
-    public Uni<ConnectorConfigSchema> findSchemaByConnectorAndVersion(String connectorId, String schemaVersion) {
-        return Panache.withSession(() -> 
-            ConnectorConfigSchema.<ConnectorConfigSchema>find("connectorId = ?1 AND schemaVersion = ?2", connectorId, schemaVersion)
-                .firstResult()
-        );
+    public ConnectorConfigSchema findSchemaByConnectorAndVersion(String connectorId, String schemaVersion) {
+        return ConnectorConfigSchema
+            .find("connectorId = ?1 AND schemaVersion = ?2", connectorId, schemaVersion)
+            .firstResult();
     }
 
-    /**
-     * Lists schemas for a connector with pagination (reactive).
-     */
-    public Uni<List<ConnectorConfigSchema>> listSchemas(String connectorId, int limit, int offset) {
-        return Panache.withSession(() -> {
-            var query = ConnectorConfigSchema.<ConnectorConfigSchema>find("connectorId = ?1 ORDER BY createdAt DESC", connectorId);
-            
-            if (offset > 0) {
-                query = query.page(offset / Math.max(limit, 1), limit);
-            } else if (limit > 0) {
-                query = query.page(0, limit);
-            }
-            
-            return query.list();
-        });
+    public List<ConnectorConfigSchema> listSchemas(String connectorId, int limit, int offset) {
+        var query = ConnectorConfigSchema
+            .<ConnectorConfigSchema>find("connectorId = ?1 ORDER BY createdAt DESC", connectorId);
+        if (offset > 0 || limit > 0) {
+            int pageSize = limit > 0 ? limit : 50;
+            query = query.page(offset > 0 ? offset / Math.max(pageSize, 1) : 0, pageSize);
+        }
+        return query.list();
     }
 
-    /**
-     * Counts schemas for a connector (reactive).
-     */
-    public Uni<Long> countSchemas(String connectorId) {
-        return Panache.withSession(() -> ConnectorConfigSchema.count("connectorId", connectorId));
+    public long countSchemas(String connectorId) {
+        return ConnectorConfigSchema.count("connectorId", connectorId);
     }
 
-    /**
-     * Creates a new schema (reactive).
-     */
-    public Uni<ConnectorConfigSchema> createSchema(String schemaId,
-                                                   String connectorId,
-                                                   String schemaVersion,
-                                                   String customConfigSchemaJson,
-                                                   String nodeCustomConfigSchemaJson,
-                                                   String createdBy) {
-        return Panache.withTransaction(() -> {
-            String id = (schemaId != null && !schemaId.isBlank()) ? schemaId : UUID.randomUUID().toString();
+    @Transactional
+    public ConnectorConfigSchema createSchema(String schemaId,
+                                              String connectorId,
+                                              String schemaVersion,
+                                              String customConfigSchemaJson,
+                                              String nodeCustomConfigSchemaJson,
+                                              String createdBy) {
+        String id = (schemaId != null && !schemaId.isBlank()) ? schemaId : UUID.randomUUID().toString();
 
-            ConnectorConfigSchema schema = new ConnectorConfigSchema();
-            schema.schemaId = id;
-            schema.connectorId = connectorId;
-            schema.schemaVersion = schemaVersion;
-            schema.customConfigSchema = customConfigSchemaJson;
-            schema.nodeCustomConfigSchema = nodeCustomConfigSchemaJson;
-            schema.createdBy = createdBy;
-            schema.syncStatus = "PENDING";
-            schema.createdAt = OffsetDateTime.now();
+        ConnectorConfigSchema schema = new ConnectorConfigSchema();
+        schema.schemaId = id;
+        schema.connectorId = connectorId;
+        schema.schemaVersion = schemaVersion;
+        schema.customConfigSchema = customConfigSchemaJson;
+        schema.nodeCustomConfigSchema = nodeCustomConfigSchemaJson;
+        schema.createdBy = createdBy;
+        schema.syncStatus = "PENDING";
+        schema.createdAt = OffsetDateTime.now();
 
-            LOG.infof("Creating connector config schema %s for connector %s version %s", id, connectorId, schemaVersion);
-            return schema.<ConnectorConfigSchema>persist()
-                .invoke(persisted -> LOG.infof("Created connector config schema %s for connector %s version %s", 
-                    persisted.schemaId, persisted.connectorId, persisted.schemaVersion));
-        });
+        LOG.infof("Creating connector config schema %s for connector %s version %s", id, connectorId, schemaVersion);
+        schema.persist();
+        return schema;
     }
 
-    /**
-     * Deletes a schema. Caller is responsible for ensuring it is not referenced (reactive).
-     *
-     * @return Uni that completes with true if deleted, false if not found
-     */
-    public Uni<Boolean> deleteSchema(String schemaId) {
-        return Panache.withTransaction(() ->
-            findSchemaById(schemaId)
-                .flatMap(schema -> {
-                    if (schema == null) {
-                        return Uni.createFrom().item(false);
-                    }
-                    return schema.delete()
-                        .map(v -> true);
-                })
-        );
+    @Transactional
+    public boolean deleteSchema(String schemaId) {
+        ConnectorConfigSchema schema = findSchemaById(schemaId);
+        if (schema == null) {
+            return false;
+        }
+        schema.delete();
+        return true;
     }
 
-    /**
-     * Checks if a schema is referenced by any connector (reactive).
-     */
-    public Uni<Boolean> isSchemaReferencedByConnector(String schemaId) {
-        return Panache.withSession(() -> 
-            Connector.count("customConfigSchemaId", schemaId)
-                .map(count -> count > 0)
-        );
+    public boolean isSchemaReferencedByConnector(String schemaId) {
+        return Connector.count("customConfigSchemaId", schemaId) > 0;
     }
 
-    /**
-     * Checks if a schema is referenced by any datasource (reactive).
-     */
-    public Uni<Boolean> isSchemaReferencedByAnyDataSource(String schemaId) {
-        return Panache.withSession(() -> 
-            DataSource.count("customConfigSchemaId", schemaId)
-                .map(count -> count > 0)
-        );
+    public boolean isSchemaReferencedByAnyDataSource(String schemaId) {
+        return DataSource.count("customConfigSchemaId", schemaId) > 0;
     }
 
-    // ========================================================================
-    // Connector type CRUD
-    // ========================================================================
-
-    /**
-     * Finds a connector by ID (reactive).
-     */
-    public Uni<Connector> findConnectorById(String connectorId) {
-        return Panache.withSession(() -> Connector.<Connector>findById(connectorId));
+    public Connector findConnectorById(String connectorId) {
+        return Connector.findById(connectorId);
     }
 
-    /**
-     * Finds a connector by its type name (reactive).
-     */
-    public Uni<Connector> findConnectorByType(String connectorType) {
-        return Panache.withSession(() ->
-            Connector.<Connector>find("connectorType", connectorType).firstResult()
-        );
+    public Connector findConnectorByType(String connectorType) {
+        return Connector.find("connectorType", connectorType).firstResult();
     }
 
-    /**
-     * Creates a new connector type (reactive).
-     *
-     * @return the persisted Connector entity
-     */
-    public Uni<Connector> createConnector(String connectorType, String name, String description,
-                                          String managementType, String displayName, String owner,
-                                          String documentationUrl, List<String> tags) {
-        return Panache.withTransaction(() -> {
-            String connectorId = generateConnectorId(connectorType);
+    @Transactional
+    public Connector createConnector(String connectorType, String name, String description,
+                                     String managementType, String displayName, String owner,
+                                     String documentationUrl, List<String> tags) {
+        String connectorId = generateConnectorId(connectorType);
 
-            Connector connector = new Connector(connectorId, connectorType, name, description, managementType);
-            if (displayName != null && !displayName.isBlank()) {
-                connector.displayName = displayName;
-            }
-            if (owner != null && !owner.isBlank()) {
-                connector.owner = owner;
-            }
-            if (documentationUrl != null && !documentationUrl.isBlank()) {
-                connector.documentationUrl = documentationUrl;
-            }
-            if (tags != null && !tags.isEmpty()) {
-                connector.tags = tags;
-            }
+        Connector connector = new Connector(connectorId, connectorType, name, description, managementType);
+        if (displayName != null && !displayName.isBlank()) {
+            connector.displayName = displayName;
+        }
+        if (owner != null && !owner.isBlank()) {
+            connector.owner = owner;
+        }
+        if (documentationUrl != null && !documentationUrl.isBlank()) {
+            connector.documentationUrl = documentationUrl;
+        }
+        if (tags != null && !tags.isEmpty()) {
+            connector.tags = tags;
+        }
 
-            LOG.infof("Creating connector type '%s' with id %s", connectorType, connectorId);
-            return connector.<Connector>persist();
-        });
+        LOG.infof("Creating connector type '%s' with id %s", connectorType, connectorId);
+        connector.persist();
+        return connector;
     }
 
-    /**
-     * Deletes a connector type by ID (reactive).
-     *
-     * @return true if deleted, false if not found
-     */
-    public Uni<Boolean> deleteConnector(String connectorId) {
-        return Panache.withTransaction(() ->
-            findConnectorById(connectorId)
-                .flatMap(connector -> {
-                    if (connector == null) {
-                        return Uni.createFrom().item(false);
-                    }
-                    return connector.delete().map(v -> true);
-                })
-        );
+    @Transactional
+    public boolean deleteConnector(String connectorId) {
+        Connector connector = findConnectorById(connectorId);
+        if (connector == null) {
+            return false;
+        }
+        connector.delete();
+        return true;
     }
 
-    /**
-     * Checks if any DataSource references this connector type (reactive).
-     */
-    public Uni<Boolean> hasDataSources(String connectorId) {
-        return Panache.withSession(() ->
-            DataSource.count("connectorId", connectorId).map(count -> count > 0)
-        );
+    public boolean hasDataSources(String connectorId) {
+        return DataSource.count("connectorId", connectorId) > 0;
     }
 
-    /**
-     * Checks if any ConnectorConfigSchema belongs to this connector type (reactive).
-     */
-    public Uni<Boolean> hasSchemas(String connectorId) {
-        return Panache.withSession(() ->
-            ConnectorConfigSchema.count("connectorId", connectorId).map(count -> count > 0)
-        );
+    public boolean hasSchemas(String connectorId) {
+        return ConnectorConfigSchema.count("connectorId", connectorId) > 0;
     }
 
-    // ========================================================================
-    // Connector updates
-    // ========================================================================
-
-    /**
-     * Deterministic connector id: UUID.nameUUIDFromBytes(connectorType.getBytes(UTF_8)).
-     * Mirrors the datasource id approach, but based solely on connectorType.
-     * <p>
-     * This is a pure function (no database access) so it's synchronous.
-     */
     public String generateConnectorId(String connectorType) {
         return UUID.nameUUIDFromBytes(connectorType.getBytes(StandardCharsets.UTF_8)).toString();
     }
 
-    /**
-     * Sets or clears a connector's custom config schema reference (reactive).
-     */
-    public Uni<Connector> setConnectorCustomConfigSchema(String connectorId, String schemaIdOrEmpty) {
-        return Panache.withTransaction(() ->
-            findConnectorById(connectorId)
-                .flatMap(connector -> {
-                    if (connector == null) {
-                        return Uni.createFrom().nullItem();
-                    }
-                    connector.customConfigSchemaId = (schemaIdOrEmpty == null || schemaIdOrEmpty.isBlank()) ? null : schemaIdOrEmpty;
-                    connector.updatedAt = OffsetDateTime.now();
-                    return connector.<Connector>persist();
-                })
-        );
+    @Transactional
+    public Connector setConnectorCustomConfigSchema(String connectorId, String schemaIdOrEmpty) {
+        Connector connector = findConnectorById(connectorId);
+        if (connector == null) {
+            return null;
+        }
+        connector.customConfigSchemaId = (schemaIdOrEmpty == null || schemaIdOrEmpty.isBlank()) ? null : schemaIdOrEmpty;
+        connector.updatedAt = OffsetDateTime.now();
+        return connector;
     }
 
-    /**
-     * Updates connector type defaults (partial update - only non-null fields) (reactive).
-     */
-    public Uni<Connector> updateConnectorDefaults(String connectorId,
-                                                  Boolean defaultPersistPipedocOrNull,
-                                                  Integer defaultMaxInlineSizeBytesOrNull,
-                                                  String defaultCustomConfigJsonOrNull,
-                                                  String displayNameOrNull,
-                                                  String ownerOrNull,
-                                                  String documentationUrlOrNull,
-                                                  List<String> tagsOrNull) {
-        return Panache.withTransaction(() ->
-            findConnectorById(connectorId)
-                .flatMap(connector -> {
-                    if (connector == null) {
-                        return Uni.createFrom().nullItem();
-                    }
+    @Transactional
+    public Connector updateConnectorDefaults(String connectorId,
+                                             Boolean defaultPersistPipedocOrNull,
+                                             Integer defaultMaxInlineSizeBytesOrNull,
+                                             String defaultCustomConfigJsonOrNull,
+                                             String displayNameOrNull,
+                                             String ownerOrNull,
+                                             String documentationUrlOrNull,
+                                             List<String> tagsOrNull) {
+        Connector connector = findConnectorById(connectorId);
+        if (connector == null) {
+            return null;
+        }
 
-                    boolean changed = false;
-
-                    if (defaultPersistPipedocOrNull != null) {
-                        connector.defaultPersistPipedoc = defaultPersistPipedocOrNull;
-                        changed = true;
-                    }
-                    if (defaultMaxInlineSizeBytesOrNull != null) {
-                        connector.defaultMaxInlineSizeBytes = defaultMaxInlineSizeBytesOrNull;
-                        changed = true;
-                    }
-                    if (defaultCustomConfigJsonOrNull != null) {
-                        connector.defaultCustomConfig = defaultCustomConfigJsonOrNull;
-                        changed = true;
-                    }
-                    if (displayNameOrNull != null && !displayNameOrNull.isBlank()) {
-                        connector.displayName = displayNameOrNull;
-                        changed = true;
-                    }
-                    if (ownerOrNull != null && !ownerOrNull.isBlank()) {
-                        connector.owner = ownerOrNull;
-                        changed = true;
-                    }
-                    if (documentationUrlOrNull != null && !documentationUrlOrNull.isBlank()) {
-                        connector.documentationUrl = documentationUrlOrNull;
-                        changed = true;
-                    }
-                    if (tagsOrNull != null) {
-                        connector.tags = tagsOrNull;
-                        changed = true;
-                    }
-
-                    if (changed) {
-                        connector.updatedAt = OffsetDateTime.now();
-                        return connector.<Connector>persist();
-                    } else {
-                        return Uni.createFrom().item(connector);
-                    }
-                })
-        );
+        boolean changed = false;
+        if (defaultPersistPipedocOrNull != null) {
+            connector.defaultPersistPipedoc = defaultPersistPipedocOrNull;
+            changed = true;
+        }
+        if (defaultMaxInlineSizeBytesOrNull != null) {
+            connector.defaultMaxInlineSizeBytes = defaultMaxInlineSizeBytesOrNull;
+            changed = true;
+        }
+        if (defaultCustomConfigJsonOrNull != null) {
+            connector.defaultCustomConfig = defaultCustomConfigJsonOrNull;
+            changed = true;
+        }
+        if (displayNameOrNull != null && !displayNameOrNull.isBlank()) {
+            connector.displayName = displayNameOrNull;
+            changed = true;
+        }
+        if (ownerOrNull != null && !ownerOrNull.isBlank()) {
+            connector.owner = ownerOrNull;
+            changed = true;
+        }
+        if (documentationUrlOrNull != null && !documentationUrlOrNull.isBlank()) {
+            connector.documentationUrl = documentationUrlOrNull;
+            changed = true;
+        }
+        if (tagsOrNull != null) {
+            connector.tags = tagsOrNull;
+            changed = true;
+        }
+        if (changed) {
+            connector.updatedAt = OffsetDateTime.now();
+        }
+        return connector;
     }
 }
