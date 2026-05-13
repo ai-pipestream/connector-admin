@@ -35,8 +35,22 @@ import java.util.List;
 
 /**
  * gRPC service implementation for connector registration and schema CRUD.
- * <p>
- * Proto Definition: intake/proto/ai/pipestream/connector/intake/v1/connector_registration.proto
+ *
+ * <p>Manages the lifecycle of connector types and their JSON Schema definitions:
+ * <ul>
+ *   <li>Connector types — pre-seeded templates such as "s3" or "file-crawler" that
+ *       accounts bind to via {@link DataSourceAdminServiceImpl}</li>
+ *   <li>Config schemas — versioned JSON Schema definitions used to validate custom
+ *       configuration at both the connector (Tier 1) and graph-node (Tier 2) levels</li>
+ * </ul>
+ *
+ * <p><strong>Reactive semantics:</strong> every method returns a cold {@link io.smallrye.mutiny.Uni}
+ * that performs a single database or lookup operation.  All transactional work is
+ * delegated to {@link ConnectorRegistrationRepository}; this class only handles
+ * protocol-level validation and proto/entity mapping.
+ *
+ * <p>Proto Definition:
+ * {@code intake/proto/ai/pipestream/connector/intake/v1/connector_registration.proto}
  */
 @GrpcService
 public class ConnectorRegistrationServiceImpl extends MutinyConnectorRegistrationServiceGrpc.ConnectorRegistrationServiceImplBase {
@@ -209,6 +223,17 @@ public class ConnectorRegistrationServiceImpl extends MutinyConnectorRegistratio
             });
     }
 
+    /**
+     * Lists all config schemas for a given connector type with cursor-based pagination.
+     *
+     * <p>The page token is an integer offset encoded as a string.  Pass the value
+     * returned in {@code next_page_token} to retrieve the next page.
+     *
+     * @param request {@link ListConnectorConfigSchemasRequest} containing a mandatory
+     *                {@code connector_id} and optional {@code page_size}/{@code page_token}
+     * @return {@link ListConnectorConfigSchemasResponse} with the schema page and
+     *         {@code total_count}; {@code next_page_token} is empty on the last page
+     */
     @Override
     public Uni<ListConnectorConfigSchemasResponse> listConnectorConfigSchemas(ListConnectorConfigSchemasRequest request) {
         if (request.getConnectorId() == null || request.getConnectorId().isBlank()) {
@@ -256,6 +281,26 @@ public class ConnectorRegistrationServiceImpl extends MutinyConnectorRegistratio
         });
     }
 
+    /**
+     * Deletes a config schema by ID.
+     *
+     * <p>Deletion is blocked when the schema is still referenced by either a
+     * connector type ({@code custom_config_schema_id} FK) or any datasource
+     * ({@code custom_config_schema_id} FK).  Both checks run in parallel for
+     * efficiency before the delete is attempted.
+     *
+     * <p>Error mapping:
+     * <ul>
+     *   <li>Missing {@code schema_id} → {@code INVALID_ARGUMENT}</li>
+     *   <li>Active reference exists → {@code FAILED_PRECONDITION}</li>
+     *   <li>Schema not found → {@code NOT_FOUND}</li>
+     * </ul>
+     *
+     * @param request {@link DeleteConnectorConfigSchemaRequest} containing the
+     *                {@code schema_id} to delete
+     * @return {@link DeleteConnectorConfigSchemaResponse} with {@code success=true}
+     *         on successful deletion
+     */
     @Override
     public Uni<DeleteConnectorConfigSchemaResponse> deleteConnectorConfigSchema(DeleteConnectorConfigSchemaRequest request) {
         if (request.getSchemaId() == null || request.getSchemaId().isBlank()) {
@@ -290,6 +335,25 @@ public class ConnectorRegistrationServiceImpl extends MutinyConnectorRegistratio
         });
     }
 
+    /**
+     * Links or unlinks a config schema to a connector type.
+     *
+     * <p>When {@code schema_id} is non-empty the referenced schema must already
+     * exist; the connector's {@code custom_config_schema_id} is set to that value.
+     * When {@code schema_id} is empty the FK is cleared (unlinking).
+     *
+     * <p>Error mapping:
+     * <ul>
+     *   <li>Missing {@code connector_id} → {@code INVALID_ARGUMENT}</li>
+     *   <li>{@code schema_id} provided but not found → {@code NOT_FOUND}</li>
+     *   <li>Connector type not found → {@code NOT_FOUND}</li>
+     * </ul>
+     *
+     * @param request {@link SetConnectorCustomConfigSchemaRequest} with {@code connector_id}
+     *                and optional {@code schema_id}
+     * @return {@link SetConnectorCustomConfigSchemaResponse} with {@code success=true} and
+     *         the updated connector proto
+     */
     @Override
     public Uni<SetConnectorCustomConfigSchemaResponse> setConnectorCustomConfigSchema(SetConnectorCustomConfigSchemaRequest request) {
         if (request.getConnectorId() == null || request.getConnectorId().isBlank()) {
@@ -327,6 +391,31 @@ public class ConnectorRegistrationServiceImpl extends MutinyConnectorRegistratio
             });
     }
 
+    /**
+     * Updates the default configuration fields of a connector type.
+     *
+     * <p>Only fields that are explicitly set in the request proto are applied;
+     * absent/default proto fields are left unchanged in the database.  Specifically:
+     * <ul>
+     *   <li>{@code default_persist_pipedoc} — only updated when the wrapper field is set</li>
+     *   <li>{@code default_max_inline_size_bytes} — only updated when the wrapper field is set</li>
+     *   <li>{@code default_custom_config} — only updated when the Struct is non-empty</li>
+     *   <li>{@code tags} — only updated when at least one tag is supplied</li>
+     *   <li>{@code display_name}, {@code owner}, {@code documentation_url} — updated to the
+     *       supplied value (even empty string, to allow clearing)</li>
+     * </ul>
+     *
+     * <p>Error mapping:
+     * <ul>
+     *   <li>Missing {@code connector_id} → {@code INVALID_ARGUMENT}</li>
+     *   <li>Connector type not found → {@code NOT_FOUND}</li>
+     * </ul>
+     *
+     * @param request {@link UpdateConnectorTypeDefaultsRequest} with the connector ID and
+     *                the subset of defaults to update
+     * @return {@link UpdateConnectorTypeDefaultsResponse} with {@code success=true} and the
+     *         updated connector proto
+     */
     @Override
     public Uni<UpdateConnectorTypeDefaultsResponse> updateConnectorTypeDefaults(UpdateConnectorTypeDefaultsRequest request) {
         if (request.getConnectorId() == null || request.getConnectorId().isBlank()) {
@@ -373,6 +462,12 @@ public class ConnectorRegistrationServiceImpl extends MutinyConnectorRegistratio
     // Proto mapping helpers
     // ========================================================================
 
+    /**
+     * Maps a {@link ConnectorConfigSchema} entity to its proto representation.
+     *
+     * @param schema the JPA entity to map; must not be {@code null}
+     * @return the corresponding {@link ai.pipestream.connector.intake.v1.ConnectorConfigSchema} proto
+     */
     private ai.pipestream.connector.intake.v1.ConnectorConfigSchema toProtoSchema(ConnectorConfigSchema schema) {
         ai.pipestream.connector.intake.v1.ConnectorConfigSchema.Builder builder =
             ai.pipestream.connector.intake.v1.ConnectorConfigSchema.newBuilder()
@@ -408,6 +503,12 @@ public class ConnectorRegistrationServiceImpl extends MutinyConnectorRegistratio
         return builder.build();
     }
 
+    /**
+     * Maps a {@link Connector} entity to its proto representation.
+     *
+     * @param c the JPA entity to map; must not be {@code null}
+     * @return the corresponding {@link ai.pipestream.connector.v1.Connector} proto
+     */
     private ai.pipestream.connector.v1.Connector toProtoConnector(Connector c) {
         // Reuse DataSourceAdminServiceImpl's mapping behavior by matching fields directly.
         ai.pipestream.connector.v1.ManagementType mgmtType = 
@@ -464,6 +565,12 @@ public class ConnectorRegistrationServiceImpl extends MutinyConnectorRegistratio
         return builder.build();
     }
 
+    /**
+     * Converts an {@link OffsetDateTime} to a protobuf {@link Timestamp}.
+     *
+     * @param dt the date-time to convert; must not be {@code null}
+     * @return the corresponding {@link Timestamp}
+     */
     private Timestamp toTimestamp(OffsetDateTime dt) {
         return Timestamp.newBuilder()
             .setSeconds(dt.toEpochSecond())
@@ -471,6 +578,13 @@ public class ConnectorRegistrationServiceImpl extends MutinyConnectorRegistratio
             .build();
     }
 
+    /**
+     * Serializes a protobuf {@link Struct} to its JSON string representation.
+     *
+     * @param struct the Struct to serialize; must not be {@code null}
+     * @return JSON string
+     * @throws io.grpc.StatusRuntimeException with {@code INVALID_ARGUMENT} if serialization fails
+     */
     private String structToJson(Struct struct) {
         try {
             return JsonFormat.printer().print(struct);
@@ -482,6 +596,13 @@ public class ConnectorRegistrationServiceImpl extends MutinyConnectorRegistratio
         }
     }
 
+    /**
+     * Parses a JSON string into a protobuf {@link Struct}.
+     *
+     * @param json the JSON string to parse; must not be {@code null}
+     * @return the corresponding {@link Struct}
+     * @throws io.grpc.StatusRuntimeException with {@code INTERNAL} if parsing fails
+     */
     private Struct jsonToStruct(String json) {
         try {
             Struct.Builder builder = Struct.newBuilder();
