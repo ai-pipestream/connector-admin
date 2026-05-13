@@ -23,6 +23,11 @@ import java.util.UUID;
 public class ConnectorTypeSeedLoader {
 
     private static final Logger LOG = Logger.getLogger(ConnectorTypeSeedLoader.class);
+
+    /**
+     * Default constructor for CDI proxying.
+     */
+    public ConnectorTypeSeedLoader() {}
     private static final String SEED_RESOURCE = "connectors-seed.json";
 
     void onStartup(@Observes StartupEvent event) {

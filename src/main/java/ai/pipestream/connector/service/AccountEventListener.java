@@ -31,6 +31,11 @@ public class AccountEventListener {
 
     private static final Logger LOG = Logger.getLogger(AccountEventListener.class);
 
+    /**
+     * Default constructor for CDI proxying.
+     */
+    public AccountEventListener() {}
+
     @Inject
     DataSourceRepository dataSourceRepository;
 

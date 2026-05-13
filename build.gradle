@@ -156,9 +156,8 @@ tasks.withType(Javadoc).configureEach { task ->
     opts.encoding = 'UTF-8'
     opts.charSet = 'UTF-8'
     opts.locale = 'en'
-    opts.addStringOption('Xdoclint:none', '-quiet')
-    // Do not fail the build on Javadoc issues
-    task.failOnError = false
+    // Fail the build on Javadoc issues
+    task.failOnError = true
 }
 
 // Enable resource filtering to replace @version@ in application.properties

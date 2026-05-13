@@ -29,6 +29,11 @@ public class AccountValidationService {
 
     private static final Logger LOG = Logger.getLogger(AccountValidationService.class);
 
+    /**
+     * Default constructor for CDI proxying.
+     */
+    public AccountValidationService() {}
+
     @GrpcClient("account-manager")
     Channel accountChannel;
 

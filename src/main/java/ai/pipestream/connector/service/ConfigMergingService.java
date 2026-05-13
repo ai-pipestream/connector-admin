@@ -24,6 +24,11 @@ import org.jboss.logging.Logger;
 public class ConfigMergingService {
 
     private static final Logger LOG = Logger.getLogger(ConfigMergingService.class);
+
+    /**
+     * Default constructor for CDI proxying.
+     */
+    public ConfigMergingService() {}
     
     // System defaults
     private static final boolean SYSTEM_DEFAULT_PERSIST_PIPEDOC = true;

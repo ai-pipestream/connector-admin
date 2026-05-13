@@ -58,9 +58,20 @@ public class ConnectorRegistrationServiceImpl extends ConnectorRegistrationServi
 
     private static final Logger LOG = Logger.getLogger(ConnectorRegistrationServiceImpl.class);
 
+    /**
+     * Default constructor for gRPC service instantiation.
+     */
+    public ConnectorRegistrationServiceImpl() {}
+
     @Inject
     ConnectorRegistrationRepository connectorRegistrationRepository;
 
+    /**
+     * Create a new connector type in the catalog.
+     *
+     * @param request The creation request containing connector metadata
+     * @param observer Stream observer for the creation response
+     */
     @Override
     public void createConnectorType(CreateConnectorTypeRequest request, StreamObserver<CreateConnectorTypeResponse> observer) {
         respond(observer, () -> {
@@ -104,6 +115,12 @@ public class ConnectorRegistrationServiceImpl extends ConnectorRegistrationServi
         });
     }
 
+    /**
+     * Delete an existing connector type if not referenced by active datasources.
+     *
+     * @param request The deletion request containing the connector ID
+     * @param observer Stream observer for the deletion response
+     */
     @Override
     public void deleteConnectorType(DeleteConnectorTypeRequest request, StreamObserver<DeleteConnectorTypeResponse> observer) {
         respond(observer, () -> {
@@ -132,6 +149,12 @@ public class ConnectorRegistrationServiceImpl extends ConnectorRegistrationServi
         });
     }
 
+    /**
+     * Register a new configuration schema for a connector type.
+     *
+     * @param request The schema creation request
+     * @param observer Stream observer for the creation response
+     */
     @Override
     public void createConnectorConfigSchema(CreateConnectorConfigSchemaRequest request,
                                             StreamObserver<CreateConnectorConfigSchemaResponse> observer) {
@@ -176,6 +199,12 @@ public class ConnectorRegistrationServiceImpl extends ConnectorRegistrationServi
         });
     }
 
+    /**
+     * Retrieve a configuration schema by ID.
+     *
+     * @param request The retrieval request containing the schema ID
+     * @param observer Stream observer for the schema response
+     */
     @Override
     public void getConnectorConfigSchema(GetConnectorConfigSchemaRequest request,
                                          StreamObserver<GetConnectorConfigSchemaResponse> observer) {
@@ -191,6 +220,12 @@ public class ConnectorRegistrationServiceImpl extends ConnectorRegistrationServi
         });
     }
 
+    /**
+     * List all configuration schemas for a connector type with pagination.
+     *
+     * @param request The listing request
+     * @param observer Stream observer for the schema list response
+     */
     @Override
     public void listConnectorConfigSchemas(ListConnectorConfigSchemasRequest request,
                                            StreamObserver<ListConnectorConfigSchemasResponse> observer) {
@@ -222,6 +257,12 @@ public class ConnectorRegistrationServiceImpl extends ConnectorRegistrationServi
         });
     }
 
+    /**
+     * Delete a configuration schema if not currently referenced.
+     *
+     * @param request The deletion request containing the schema ID
+     * @param observer Stream observer for the deletion response
+     */
     @Override
     public void deleteConnectorConfigSchema(DeleteConnectorConfigSchemaRequest request,
                                             StreamObserver<DeleteConnectorConfigSchemaResponse> observer) {
@@ -245,6 +286,12 @@ public class ConnectorRegistrationServiceImpl extends ConnectorRegistrationServi
         });
     }
 
+    /**
+     * Set the active configuration schema for a connector type.
+     *
+     * @param request The update request
+     * @param observer Stream observer for the update response
+     */
     @Override
     public void setConnectorCustomConfigSchema(SetConnectorCustomConfigSchemaRequest request,
                                                StreamObserver<SetConnectorCustomConfigSchemaResponse> observer) {
@@ -272,6 +319,12 @@ public class ConnectorRegistrationServiceImpl extends ConnectorRegistrationServi
         });
     }
 
+    /**
+     * Update default configuration values and metadata for a connector type.
+     *
+     * @param request The update request
+     * @param observer Stream observer for the update response
+     */
     @Override
     public void updateConnectorTypeDefaults(UpdateConnectorTypeDefaultsRequest request,
                                             StreamObserver<UpdateConnectorTypeDefaultsResponse> observer) {

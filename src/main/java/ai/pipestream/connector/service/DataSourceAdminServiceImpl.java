@@ -74,6 +74,11 @@ public class DataSourceAdminServiceImpl extends DataSourceAdminServiceGrpc.DataS
     private static final Logger LOG = Logger.getLogger(DataSourceAdminServiceImpl.class);
     private static final String TEST_ACCOUNT_ID_PREFIX = "test-";
 
+    /**
+     * Default constructor for gRPC service instantiation.
+     */
+    public DataSourceAdminServiceImpl() {}
+
     @Inject
     DataSourceRepository dataSourceRepository;
 
@@ -86,6 +91,12 @@ public class DataSourceAdminServiceImpl extends DataSourceAdminServiceGrpc.DataS
     @Inject
     ConfigMergingService configMergingService;
 
+    /**
+     * Create a new datasource for an account and connector type.
+     *
+     * @param request The creation request
+     * @param observer Stream observer for the creation response
+     */
     @Override
     public void createDataSource(CreateDataSourceRequest request, StreamObserver<CreateDataSourceResponse> observer) {
         respond(observer, () -> {
@@ -126,6 +137,12 @@ public class DataSourceAdminServiceImpl extends DataSourceAdminServiceGrpc.DataS
         });
     }
 
+    /**
+     * Update an existing datasource's metadata and settings.
+     *
+     * @param request The update request
+     * @param observer Stream observer for the update response
+     */
     @Override
     public void updateDataSource(UpdateDataSourceRequest request, StreamObserver<UpdateDataSourceResponse> observer) {
         respond(observer, () -> {
@@ -152,6 +169,12 @@ public class DataSourceAdminServiceImpl extends DataSourceAdminServiceGrpc.DataS
         });
     }
 
+    /**
+     * Retrieve a datasource by ID.
+     *
+     * @param request The retrieval request
+     * @param observer Stream observer for the datasource response
+     */
     @Override
     public void getDataSource(GetDataSourceRequest request, StreamObserver<GetDataSourceResponse> observer) {
         respond(observer, () -> {
@@ -165,6 +188,12 @@ public class DataSourceAdminServiceImpl extends DataSourceAdminServiceGrpc.DataS
         });
     }
 
+    /**
+     * Validate an API key for a datasource and return its merged configuration.
+     *
+     * @param request The validation request
+     * @param observer Stream observer for the validation response
+     */
     @Override
     public void validateApiKey(ValidateApiKeyRequest request, StreamObserver<ValidateApiKeyResponse> observer) {
         respond(observer, () -> {
@@ -197,6 +226,12 @@ public class DataSourceAdminServiceImpl extends DataSourceAdminServiceGrpc.DataS
         });
     }
 
+    /**
+     * List datasources with pagination and optional account filtering.
+     *
+     * @param request The listing request
+     * @param observer Stream observer for the datasource list response
+     */
     @Override
     public void listDataSources(ListDataSourcesRequest request, StreamObserver<ListDataSourcesResponse> observer) {
         respond(observer, () -> {
@@ -224,6 +259,12 @@ public class DataSourceAdminServiceImpl extends DataSourceAdminServiceGrpc.DataS
         });
     }
 
+    /**
+     * Update the active status of a datasource.
+     *
+     * @param request The status update request
+     * @param observer Stream observer for the status response
+     */
     @Override
     public void setDataSourceStatus(SetDataSourceStatusRequest request, StreamObserver<SetDataSourceStatusResponse> observer) {
         respond(observer, () -> {
@@ -236,6 +277,12 @@ public class DataSourceAdminServiceImpl extends DataSourceAdminServiceGrpc.DataS
         });
     }
 
+    /**
+     * Soft-delete a datasource.
+     *
+     * @param request The deletion request
+     * @param observer Stream observer for the deletion response
+     */
     @Override
     public void deleteDataSource(DeleteDataSourceRequest request, StreamObserver<DeleteDataSourceResponse> observer) {
         respond(observer, () -> {
@@ -247,6 +294,12 @@ public class DataSourceAdminServiceImpl extends DataSourceAdminServiceGrpc.DataS
         });
     }
 
+    /**
+     * Rotate the API key for a datasource and return the new plaintext key.
+     *
+     * @param request The rotation request
+     * @param observer Stream observer for the rotation response
+     */
     @Override
     public void rotateApiKey(RotateApiKeyRequest request, StreamObserver<RotateApiKeyResponse> observer) {
         respond(observer, () -> {
@@ -265,6 +318,12 @@ public class DataSourceAdminServiceImpl extends DataSourceAdminServiceGrpc.DataS
         });
     }
 
+    /**
+     * Retrieve the crawl history for a datasource (not yet implemented).
+     *
+     * @param request The history request
+     * @param observer Stream observer for the history response
+     */
     @Override
     public void getCrawlHistory(GetCrawlHistoryRequest request, StreamObserver<GetCrawlHistoryResponse> observer) {
         observer.onError(Status.UNIMPLEMENTED
@@ -272,6 +331,12 @@ public class DataSourceAdminServiceImpl extends DataSourceAdminServiceGrpc.DataS
             .asRuntimeException());
     }
 
+    /**
+     * List all available connector types.
+     *
+     * @param request The listing request
+     * @param observer Stream observer for the connector type list response
+     */
     @Override
     public void listConnectorTypes(ListConnectorTypesRequest request, StreamObserver<ListConnectorTypesResponse> observer) {
         respond(observer, () -> {
@@ -283,6 +348,12 @@ public class DataSourceAdminServiceImpl extends DataSourceAdminServiceGrpc.DataS
         });
     }
 
+    /**
+     * Retrieve a connector type by ID.
+     *
+     * @param request The retrieval request
+     * @param observer Stream observer for the connector type response
+     */
     @Override
     public void getConnectorType(GetConnectorTypeRequest request, StreamObserver<GetConnectorTypeResponse> observer) {
         respond(observer, () -> {
@@ -296,6 +367,15 @@ public class DataSourceAdminServiceImpl extends DataSourceAdminServiceGrpc.DataS
         });
     }
 
+    /**
+     * Clean up test datasources for a specific test account.
+     * <p>
+     * This method is only available in non-production profiles and for accounts
+     * starting with "test-".
+     *
+     * @param request The cleanup request
+     * @param observer Stream observer for the cleanup response
+     */
     @Override
     @Transactional
     public void cleanupTestDataSources(CleanupTestDataSourcesRequest request,
