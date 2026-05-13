@@ -491,6 +491,17 @@ public class DataSourceAdminServiceImpl extends MutinyDataSourceAdminServiceGrpc
 
     private static final String TEST_ACCOUNT_ID_PREFIX = "test-";
 
+    /**
+     * Returns {@code true} when the active Quarkus profile is a production profile
+     * ({@code prod} or {@code production}).  Used to guard destructive test-only
+     * operations from accidentally running in production.
+     *
+     * <p>Profile resolution order: JVM system property {@code quarkus.profile}, then
+     * environment variable {@code QUARKUS_PROFILE}.  Returns {@code false} when neither
+     * is set (i.e., dev/test profiles are considered non-production).
+     *
+     * @return {@code true} if the active profile is production; {@code false} otherwise
+     */
     private boolean isProductionProfile() {
         String profile = System.getProperty("quarkus.profile");
         if (profile == null || profile.isBlank()) {
@@ -504,6 +515,16 @@ public class DataSourceAdminServiceImpl extends MutinyDataSourceAdminServiceGrpc
         return "prod".equals(normalizedProfile) || "production".equals(normalizedProfile);
     }
 
+    /**
+     * Returns {@code true} when {@code accountId} is a permitted test-account identifier.
+     *
+     * <p>Test-account IDs must start with the {@value #TEST_ACCOUNT_ID_PREFIX} prefix.
+     * This guards {@link #cleanupTestDataSources} so that it can only target clearly-labelled
+     * test data — accidental cleanup of real accounts is prevented at the application level.
+     *
+     * @param accountId the account identifier to inspect; may be {@code null}
+     * @return {@code true} if the ID starts with the test prefix; {@code false} otherwise
+     */
     private boolean isAllowedTestAccountId(String accountId) {
         return accountId != null && accountId.startsWith(TEST_ACCOUNT_ID_PREFIX);
     }
@@ -736,7 +757,15 @@ public class DataSourceAdminServiceImpl extends MutinyDataSourceAdminServiceGrpc
     }
 
     /**
-     * Convert map to simple JSON string.
+     * Serializes a flat {@code Map<String, String>} to a minimal JSON object string.
+     *
+     * <p>This is a lightweight serializer for metadata maps and avoids pulling in
+     * Jackson or Gson for a simple use-case.  Keys and values are escaped for JSON
+     * special characters ({@code "}, {@code \}, newlines) but nested objects are
+     * <em>not</em> supported.  Use {@link #jsonToMap} to round-trip back.
+     *
+     * @param map the map to serialize; {@code null} or empty returns {@code "{}"}
+     * @return JSON object string, e.g. {@code {"env":"dev","team":"engineering"}}
      */
     private String mapToJson(Map<String, String> map) {
         if (map == null || map.isEmpty()) {
@@ -748,7 +777,15 @@ public class DataSourceAdminServiceImpl extends MutinyDataSourceAdminServiceGrpc
     }
 
     /**
-     * Convert simple JSON string to map.
+     * Deserializes a minimal JSON object string to a flat {@code Map<String, String>}.
+     *
+     * <p>Counterpart to {@link #mapToJson}.  Only flat JSON objects with string values
+     * are supported.  Nested or typed (numeric, boolean) values are returned as raw
+     * strings.
+     *
+     * @param json the JSON object string; {@code null}, empty, or {@code "{}"} returns
+     *             an empty map
+     * @return a flat {@code Map<String, String>} parsed from the JSON
      */
     private Map<String, String> jsonToMap(String json) {
         // Simple JSON parsing for flat key-value maps
@@ -779,6 +816,13 @@ public class DataSourceAdminServiceImpl extends MutinyDataSourceAdminServiceGrpc
             ));
     }
 
+    /**
+     * Escapes a string value for embedding inside a JSON double-quoted string literal.
+     * Handles backslash, double-quote, newline, carriage-return and tab.
+     *
+     * @param s the string to escape; must not be {@code null}
+     * @return the escaped string
+     */
     private String escapeJson(String s) {
         return s.replace("\\", "\\\\")
                 .replace("\"", "\\\"")
@@ -787,6 +831,14 @@ public class DataSourceAdminServiceImpl extends MutinyDataSourceAdminServiceGrpc
                 .replace("\t", "\\t");
     }
 
+    /**
+     * Strips surrounding double-quote characters from a JSON string token.
+     *
+     * <p>Used when parsing raw JSON key/value tokens that may or may not be quoted.
+     *
+     * @param s the token to unquote; must not be {@code null}
+     * @return the string without surrounding quotes, or the original string if unquoted
+     */
     private String unquote(String s) {
         if (s.startsWith("\"") && s.endsWith("\"")) {
             return s.substring(1, s.length() - 1);
