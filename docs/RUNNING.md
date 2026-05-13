@@ -192,7 +192,7 @@ grpcurl -plaintext -d "{
 | `GetDataSource` | `datasource_id` | `datasource` (no API key) |
 | `UpdateDataSource` | `datasource_id` + fields to change | updated `datasource` |
 | `ListDataSources` | optional `account_id`, `page_size`, `page_token` | paginated list |
-| `DeleteDataSource` | `datasource_id` | soft-deletes (marks inactive) |
+| `DeleteDataSource` | `datasource_id`; optional `hard_delete` (bool) | soft-deletes by default; pass `hard_delete: true` to permanently remove |
 | `ValidateApiKey` | `datasource_id`, `api_key` | `valid` bool + merged `DataSourceConfig` |
 | `RotateApiKey` | `datasource_id` | one-time `new_api_key` |
 | `SetDataSourceStatus` | `datasource_id`, `active` | `success` bool |
