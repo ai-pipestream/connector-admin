@@ -9,9 +9,14 @@ import java.util.Map;
 /**
  * Starts pipestream-wiremock-server for packaged connector-admin integration tests.
  *
+ * <p>The packaged tests run connector-admin in a separate JVM, so CDI test
+ * alternatives are not available. This resource provides the same external
+ * boundary that production uses: connector-admin resolves {@code account-manager}
+ * through Stork and calls it over gRPC.
+ *
  * <p>The account-manager mock is a unary gRPC service served through WireMock's
- * standard port. The direct gRPC port is for streaming mocks and does not serve
- * AccountService unary requests.
+ * standard port. The direct gRPC port is reserved for streaming mocks and does
+ * not serve {@code AccountService} unary requests.
  */
 public class ConnectorAdminIntegrationTestResource extends BaseWireMockTestResource {
 

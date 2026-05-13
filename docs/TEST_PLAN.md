@@ -4,6 +4,23 @@ Connector Admin is the datasource and API-key authority for connector ingestion.
 test plan focuses on proving that only valid, active datasource credentials can reach
 the intake path and that connector configuration is returned consistently.
 
+```mermaid
+flowchart TD
+    Compile[Compile generated and hand-written Java] --> Unit[Unit and Quarkus tests]
+    Unit --> Packaged[Packaged gRPC integration tests]
+    Packaged --> Manual[Optional grpcurl smoke workflow]
+
+    Packaged --> Gateway[ConnectorAdminGatewayBehaviorIT]
+    Packaged --> Lifecycle[DataSourceLifecycleIT]
+    Packaged --> Catalog[ConnectorTypeCrudIT]
+    Unit --> Events[AccountEventListenerTest]
+
+    Gateway --> CredentialBoundary[API-key exposure and rotation]
+    Gateway --> AccountBoundary[account-manager validation boundary]
+    Gateway --> ReferentialIntegrity[connector delete preconditions]
+    Events --> EventReconciliation[account inactivation/reactivation reconciliation]
+```
+
 ## Test Layers
 
 ### Compile
@@ -43,15 +60,41 @@ application as a separate JVM, uses PostgreSQL DevServices for persistence, and 
 
 Covered gateway behaviors:
 
+- `ConnectorAdminGatewayBehaviorIT` uses standard grpc-java blocking stubs to prove
+  the public production contract without CDI, repositories, or reactive test helpers.
 - Creating a datasource requires an active account and returns the plaintext API key
   only in the creation response.
 - Inactive or missing accounts cannot create datasources.
+- Datasource creation fails when the connector type does not exist.
 - `GetDataSource` and `ListDataSources` do not expose plaintext API keys.
 - `ValidateApiKey` accepts only the active datasource and current key.
 - API-key rotation invalidates the old key and returns the new plaintext key once.
 - Disable and soft-delete immediately block validation.
 - Connector defaults and datasource overrides merge into `DataSourceConfig`.
 - Connector/schema CRUD rejects deletes while references exist.
+
+### Account Event Reconciliation
+
+`AccountEventListenerTest` covers the Kafka consumer logic that mirrors account
+lifecycle state into datasource access state. It explicitly invokes the listener from
+outside the request context to prove that the consumer has the transaction it needs for
+Hibernate ORM access.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Accounts as account-manager
+    participant Kafka as account-events topic
+    participant Listener as AccountEventListener
+    participant DB as PostgreSQL
+
+    Accounts->>Kafka: AccountEvent.Inactivated(account_id)
+    Kafka->>Listener: consume on worker thread
+    Listener->>DB: active datasources -> active=false, reason=account_inactive
+    Accounts->>Kafka: AccountEvent.Reactivated(account_id)
+    Kafka->>Listener: consume on worker thread
+    Listener->>DB: account_inactive datasources -> active=true
+```
 
 ### Manual grpcurl Workflow
 

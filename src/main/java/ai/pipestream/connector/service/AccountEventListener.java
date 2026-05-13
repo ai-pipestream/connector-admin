@@ -13,7 +13,18 @@ import org.jboss.logging.Logger;
 import java.util.List;
 
 /**
- * Consumes account lifecycle events and synchronizes datasource status.
+ * Consumes account lifecycle events and reconciles datasource access state.
+ *
+ * <p>Account-manager is the authority for whether an account is active.
+ * connector-admin mirrors only the effect that matters for ingestion: when an
+ * account is inactivated, active datasources for that account are disabled with
+ * {@code status_reason=account_inactive}; when the account is reactivated, only
+ * datasources disabled for that reason are re-enabled.
+ *
+ * <p>The method is both {@link Blocking} and {@link Transactional}. The Kafka
+ * connector can invoke consumers outside an HTTP/gRPC request context, so the
+ * transaction is required for Hibernate ORM access and for reliable message
+ * failure reporting.
  */
 @ApplicationScoped
 public class AccountEventListener {
@@ -23,6 +34,12 @@ public class AccountEventListener {
     @Inject
     DataSourceRepository dataSourceRepository;
 
+    /**
+     * Applies the ingestion-relevant effect of an account lifecycle event.
+     *
+     * @param event account-manager lifecycle event; null records are ignored so
+     *        deserialization failures do not crash the consumer
+     */
     @Incoming("account-events")
     @Blocking
     @Transactional
@@ -43,7 +60,7 @@ public class AccountEventListener {
                 case CREATED, UPDATED -> LOG.debugf("Ignoring account %s event: %s", event.getOperationCase(), accountId);
                 case OPERATION_NOT_SET -> LOG.warnf("Received account event with no operation set: eventId=%s", event.getEventId());
             }
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             LOG.errorf(e, "Error processing account event: eventId=%s, accountId=%s", event.getEventId(), accountId);
             throw e;
         }

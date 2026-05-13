@@ -21,6 +21,7 @@ import ai.pipestream.connector.intake.v1.UpdateConnectorTypeDefaultsRequest;
 import ai.pipestream.connector.intake.v1.UpdateConnectorTypeDefaultsResponse;
 import ai.pipestream.connector.repository.ConnectorRegistrationRepository;
 import ai.pipestream.connector.v1.ManagementType;
+import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.Struct;
 import com.google.protobuf.Timestamp;
 import com.google.protobuf.util.JsonFormat;
@@ -36,7 +37,20 @@ import java.time.OffsetDateTime;
 import java.util.List;
 
 /**
- * Blocking gRPC service implementation for connector type and schema registration.
+ * Production gRPC service for connector type registration and schema lifecycle.
+ *
+ * <p>Connector types are the catalog entries that datasource records bind to.
+ * They define connector identity, ownership metadata, default behavior, and the
+ * optional JSON Schemas used to validate connector-specific custom configuration.
+ *
+ * <p>This service enforces referential integrity at the API boundary. Connector
+ * types and schema versions cannot be removed while datasources or catalog
+ * records still reference them, so operational cleanup cannot accidentally break
+ * an active ingestion path.
+ *
+ * <p>The service uses standard grpc-java {@link StreamObserver} callbacks and
+ * blocking repository calls. Generated Mutiny stubs may still exist for client
+ * compatibility, but hand-written production code is intentionally imperative.
  */
 @GrpcService
 @Blocking
@@ -386,7 +400,7 @@ public class ConnectorRegistrationServiceImpl extends ConnectorRegistrationServi
     private String structToJson(Struct struct) {
         try {
             return JsonFormat.printer().print(struct);
-        } catch (Exception e) {
+        } catch (InvalidProtocolBufferException e) {
             throw Status.INVALID_ARGUMENT
                 .withDescription("Failed to serialize protobuf Struct to JSON")
                 .withCause(e)
@@ -399,7 +413,7 @@ public class ConnectorRegistrationServiceImpl extends ConnectorRegistrationServi
             Struct.Builder builder = Struct.newBuilder();
             JsonFormat.parser().merge(json, builder);
             return builder.build();
-        } catch (Exception e) {
+        } catch (InvalidProtocolBufferException e) {
             throw Status.INTERNAL
                 .withDescription("Failed to parse JSON into protobuf Struct")
                 .withCause(e)

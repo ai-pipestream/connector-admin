@@ -10,6 +10,7 @@ import jakarta.enterprise.event.Observes;
 import jakarta.transaction.Transactional;
 import org.jboss.logging.Logger;
 
+import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -35,7 +36,7 @@ public class ConnectorTypeSeedLoader {
             LOG.infof("Seeding %d connector types from %s", entries.size(), SEED_RESOURCE);
             entries.forEach(this::upsertConnectorType);
             LOG.info("Connector type seeding complete");
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             LOG.warnf(e, "Connector type seeding failed (non-fatal, Flyway seed is primary)");
         }
     }
@@ -67,7 +68,7 @@ public class ConnectorTypeSeedLoader {
                 return List.of();
             }
             return new ObjectMapper().readValue(is, new TypeReference<>() {});
-        } catch (Exception e) {
+        } catch (IOException e) {
             LOG.errorf(e, "Failed to load connector seed file %s", SEED_RESOURCE);
             return List.of();
         }

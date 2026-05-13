@@ -30,6 +30,7 @@ import ai.pipestream.connector.intake.v1.UpdateDataSourceResponse;
 import ai.pipestream.connector.intake.v1.ValidateApiKeyRequest;
 import ai.pipestream.connector.intake.v1.ValidateApiKeyResponse;
 import ai.pipestream.connector.repository.DataSourceRepository;
+import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.Timestamp;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
@@ -45,7 +46,26 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
- * Blocking gRPC service implementation for DataSource Administration.
+ * Production gRPC gateway for datasource lifecycle and credential validation.
+ *
+ * <p>This service is the control-plane authority for connector ingress. External
+ * connectors do not write directly to the indexer: they present a datasource ID
+ * and API key to connector-intake, and connector-intake calls
+ * {@code ValidateApiKey} here before accepting the upload. A successful
+ * validation response returns the merged {@link DataSourceConfig} that tells
+ * intake how the document should be routed and persisted.
+ *
+ * <p>Credential handling is intentionally narrow:
+ * <ul>
+ *   <li>{@code CreateDataSource} and {@code RotateApiKey} are the only RPCs that
+ *       return plaintext API keys.</li>
+ *   <li>All read/list RPCs omit plaintext keys.</li>
+ *   <li>Inactive, disabled, or soft-deleted datasources cannot validate.</li>
+ * </ul>
+ *
+ * <p>The implementation is blocking by design. Quarkus runs this bean on worker
+ * threads via {@link Blocking}, and persistence uses Hibernate ORM/Panache inside
+ * transactional repository methods.
  */
 @GrpcService
 @Blocking
@@ -472,7 +492,7 @@ public class DataSourceAdminServiceImpl extends DataSourceAdminServiceGrpc.DataS
                 com.google.protobuf.Struct.Builder structBuilder = com.google.protobuf.Struct.newBuilder();
                 com.google.protobuf.util.JsonFormat.parser().merge(c.defaultCustomConfig, structBuilder);
                 builder.setDefaultCustomConfig(structBuilder.build());
-            } catch (Exception e) {
+            } catch (InvalidProtocolBufferException e) {
                 LOG.warnf(e, "Failed to parse connector default_custom_config for connector %s", c.connectorId);
             }
         }

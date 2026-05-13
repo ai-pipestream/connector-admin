@@ -13,7 +13,16 @@ import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
 
 /**
- * Validates accounts by calling account-manager over standard blocking gRPC.
+ * Validates datasource ownership against account-manager.
+ *
+ * <p>Datasource creation is allowed only for an account that exists and is
+ * active. connector-admin maps account-manager {@code NOT_FOUND} responses to
+ * {@code INVALID_ARGUMENT} because, from this service's API contract, the caller
+ * supplied an unusable account ID rather than a missing connector-admin record.
+ *
+ * <p>Tests may enable the narrow {@code connector.admin.account.validation.stub}
+ * profile switch, but packaged integration tests use pipestream-wiremock-server
+ * over the same gRPC client path used in production.
  */
 @ApplicationScoped
 public class AccountValidationService {
@@ -33,6 +42,13 @@ public class AccountValidationService {
         this.accountStub = AccountServiceGrpc.newBlockingStub(accountChannel);
     }
 
+    /**
+     * Ensures a datasource can be created for the supplied account.
+     *
+     * @param accountId account-manager account identifier supplied by the caller
+     * @throws StatusRuntimeException with {@code INVALID_ARGUMENT} when the
+     *         account is missing, blank, or inactive
+     */
     public void validateAccountExistsAndActive(String accountId) {
         if (stubValidation) {
             validateStubAccount(accountId, true);
@@ -48,6 +64,14 @@ public class AccountValidationService {
         LOG.debugf("Account %s validated successfully", accountId);
     }
 
+    /**
+     * Ensures an account ID resolves in account-manager without requiring that
+     * the account currently be active.
+     *
+     * @param accountId account-manager account identifier supplied by the caller
+     * @throws StatusRuntimeException with {@code INVALID_ARGUMENT} when the
+     *         account is missing or blank
+     */
     public void validateAccountExists(String accountId) {
         if (stubValidation) {
             validateStubAccount(accountId, false);
