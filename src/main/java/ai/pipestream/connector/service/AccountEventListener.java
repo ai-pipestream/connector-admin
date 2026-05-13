@@ -6,6 +6,7 @@ import ai.pipestream.repository.account.v1.AccountEvent;
 import io.smallrye.common.annotation.Blocking;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import jakarta.transaction.Transactional;
 import org.eclipse.microprofile.reactive.messaging.Incoming;
 import org.jboss.logging.Logger;
 
@@ -24,6 +25,7 @@ public class AccountEventListener {
 
     @Incoming("account-events")
     @Blocking
+    @Transactional
     public void handleAccountEvent(AccountEvent event) {
         if (event == null) {
             LOG.debug("Skipping account-events record: deserialization failed (payload null)");
@@ -43,6 +45,7 @@ public class AccountEventListener {
             }
         } catch (Exception e) {
             LOG.errorf(e, "Error processing account event: eventId=%s, accountId=%s", event.getEventId(), accountId);
+            throw e;
         }
     }
 
