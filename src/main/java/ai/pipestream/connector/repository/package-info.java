@@ -1,9 +1,8 @@
 /**
- * Reactive repository classes for database access in the Connector Admin service.
+ * Repository classes for database access in the Connector Admin service.
  *
- * <p>All repositories use Hibernate Reactive Panache and return
- * {@link io.smallrye.mutiny.Uni} for non-blocking I/O.  Transactions are managed
- * explicitly via {@link io.quarkus.hibernate.reactive.panache.Panache#withTransaction}.
+ * <p>Repositories use Hibernate ORM Panache with synchronous methods. Transactional
+ * write methods are marked with {@link jakarta.transaction.Transactional}.
  *
  * <ul>
  *   <li>{@link ai.pipestream.connector.repository.DataSourceRepository} — CRUD for the

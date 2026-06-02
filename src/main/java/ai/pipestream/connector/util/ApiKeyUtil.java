@@ -26,6 +26,11 @@ import java.util.Base64;
 public class ApiKeyUtil implements CredentialService {
 
     private static final Logger LOG = Logger.getLogger(ApiKeyUtil.class);
+
+    /**
+     * Default constructor for CDI proxying.
+     */
+    public ApiKeyUtil() {}
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
     private static final int API_KEY_BYTES = 32; // 256 bits
 
@@ -101,7 +106,7 @@ public class ApiKeyUtil implements CredentialService {
             boolean matches = Password.check(plaintextApiKey, storedHash).with(ARGON2);
             LOG.debugf("API key verification: %s", matches ? "SUCCESS" : "FAILED");
             return matches;
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             LOG.warnf(e, "API key verification failed with exception");
             return false;
         }

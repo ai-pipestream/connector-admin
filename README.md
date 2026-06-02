@@ -13,6 +13,24 @@ The connector-admin service provides centralized administration for external dat
 
 ## Architecture
 
+Connector Admin is the production control point for datasource onboarding and
+credential validation. External connectors do not write directly to the indexing path:
+connector-intake calls `ValidateApiKey` here before accepting traffic and receives the
+merged `DataSourceConfig` used for routing and persistence decisions.
+
+```mermaid
+flowchart LR
+    AdminClient[Admin client] -->|CreateDataSource / RotateApiKey| Admin[connector-admin]
+    Connector[External connector] -->|Upload request| Intake[connector-intake-service]
+    Intake -->|ValidateApiKey| Admin
+    Admin -->|GetAccount| Accounts[account-manager]
+    Admin -->|Datasource + credential hash| DB[(PostgreSQL)]
+    Admin -->|Merged DataSourceConfig| Intake
+```
+
+See `docs/PRODUCTION_BEHAVIOR.md` for the production contract and
+`docs/TEST_PLAN.md` for the automated validation strategy.
+
 ### Two-Tier Configuration Model
 
 The service implements a hierarchical configuration system:

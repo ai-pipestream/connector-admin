@@ -15,7 +15,7 @@
  *       levels.</li>
  * </ul>
  *
- * <p>All entities extend {@link io.quarkus.hibernate.reactive.panache.PanacheEntityBase}
+ * <p>All entities extend {@link io.quarkus.hibernate.orm.panache.PanacheEntityBase}
  * and rely on Flyway for schema management (no DDL auto-generation).
  */
 package ai.pipestream.connector.entity;

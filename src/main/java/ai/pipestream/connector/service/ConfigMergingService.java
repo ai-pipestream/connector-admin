@@ -24,6 +24,11 @@ import org.jboss.logging.Logger;
 public class ConfigMergingService {
 
     private static final Logger LOG = Logger.getLogger(ConfigMergingService.class);
+
+    /**
+     * Default constructor for CDI proxying.
+     */
+    public ConfigMergingService() {}
     
     // System defaults
     private static final boolean SYSTEM_DEFAULT_PERSIST_PIPEDOC = true;
@@ -105,7 +110,7 @@ public class ConfigMergingService {
                 Struct connectorCustomConfig = jsonStringToStruct(connector.defaultCustomConfig);
                 // Set connector custom_config (will be merged with datasource column later)
                 builder.setCustomConfig(connectorCustomConfig);
-            } catch (Exception e) {
+            } catch (InvalidProtocolBufferException e) {
                 LOG.warnf(e, "Failed to parse connector default custom config for connector %s: %s", 
                     connector.connectorId, connector.defaultCustomConfig);
             }
@@ -131,7 +136,7 @@ public class ConfigMergingService {
                 } else {
                     builder.setCustomConfig(datasourceCustomConfig);
                 }
-            } catch (Exception e) {
+            } catch (InvalidProtocolBufferException e) {
                 LOG.warnf(e, "Failed to parse datasource custom config for datasource %s: %s", 
                     datasource.datasourceId, datasource.customConfig);
             }
@@ -191,7 +196,7 @@ public class ConfigMergingService {
     /**
      * Convert JSON string to protobuf Struct.
      */
-    private Struct jsonStringToStruct(String json) throws Exception {
+    private Struct jsonStringToStruct(String json) throws InvalidProtocolBufferException {
         Struct.Builder structBuilder = Struct.newBuilder();
         JsonFormat.parser().merge(json, structBuilder);
         return structBuilder.build();

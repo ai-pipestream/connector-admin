@@ -272,7 +272,7 @@ public abstract class ConnectorTypeCrudBaseTest {
             // Create a datasource referencing this connector type
             CreateDataSourceResponse ds = adminStub().createDataSource(
                 CreateDataSourceRequest.newBuilder()
-                    .setAccountId("test-account")
+                    .setAccountId("valid-account")
                     .setConnectorId(connectorId)
                     .setName("Test DS for precondition")
                     .setDriveName("test-drive")

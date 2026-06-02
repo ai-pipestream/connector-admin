@@ -30,7 +30,7 @@ scmVersion {
 pipestreamProtos {
     sourceMode = 'git-proto-workspace'
     gitRepo = "https://github.com/ai-pipestream/pipestream-protos.git"
-    gitRef = "main"
+    gitRef = "bom/engine-refactor-pr0"
     generateMutiny = true
     generateDescriptors = true
 
@@ -72,10 +72,7 @@ dependencies {
     implementation 'ai.pipestream:pipestream-quarkus-devservices'
 
     // Core Quarkus dependencies
-    // Hibernate Reactive Panache for fully reactive database access
-    implementation 'io.quarkus:quarkus-hibernate-reactive-panache'
-    implementation 'io.quarkus:quarkus-reactive-pg-client'
-    // JDBC driver still required for Flyway (Flyway doesn't support reactive drivers)
+    implementation 'io.quarkus:quarkus-hibernate-orm-panache'
     implementation 'io.quarkus:quarkus-jdbc-postgresql'
     implementation 'io.quarkus:quarkus-arc'
     implementation 'io.quarkus:quarkus-flyway'
@@ -92,7 +89,6 @@ dependencies {
     // Service Discovery dependencies
     implementation 'io.smallrye.stork:stork-service-discovery-consul'
     implementation 'io.smallrye.stork:stork-service-discovery-static-list'
-    implementation 'io.smallrye.reactive:smallrye-mutiny-vertx-consul-client'
     // Password hashing
     implementation libs.password4j
 
@@ -106,8 +102,6 @@ dependencies {
     // Test dependencies
     testImplementation platform("ai.pipestream:pipestream-bom:${pipestreamBomVersion}")
     testImplementation 'io.quarkus:quarkus-junit5'
-    testImplementation 'io.quarkus:quarkus-test-hibernate-reactive-panache'
-    testImplementation 'io.quarkus:quarkus-test-vertx'
     testImplementation libs.smallrye.reactive.messaging.in.memory
     testImplementation libs.awaitility
     testImplementation libs.assertj.core
@@ -115,6 +109,7 @@ dependencies {
     // Testcontainers - version managed by pipestream-bom
     testImplementation 'org.testcontainers:testcontainers'
     testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
+    integrationTestImplementation("ai.pipestream:pipestream-test-support:${pipestreamBomVersion}")
     integrationTestImplementation 'io.grpc:grpc-netty-shaded'
     integrationTestImplementation 'io.grpc:grpc-protobuf'
     integrationTestImplementation 'io.grpc:grpc-stub'
@@ -161,9 +156,8 @@ tasks.withType(Javadoc).configureEach { task ->
     opts.encoding = 'UTF-8'
     opts.charSet = 'UTF-8'
     opts.locale = 'en'
-    opts.addStringOption('Xdoclint:none', '-quiet')
-    // Do not fail the build on Javadoc issues
-    task.failOnError = false
+    // Fail the build on Javadoc issues
+    task.failOnError = true
 }
 
 // Enable resource filtering to replace @version@ in application.properties

@@ -18,7 +18,7 @@
 # 6.  Disables the datasource (simulating a maintenance window) and confirms
 #     that API-key validation is rejected while disabled.
 # 7.  Re-enables the datasource.
-# 8.  (Optional) Cleans up test data when DRY_RUN=false.
+# 8.  (Optional) Soft-deletes the test datasource when DRY_RUN=false.
 #
 # Usage
 # -----
@@ -28,7 +28,7 @@
 #   # Point at a remote host
 #   GRPC_HOST=admin.example.com:18107 ./scripts/upload-document-e2e.sh
 #
-#   # Run cleanup at the end (hard-deletes the test datasource)
+#   # Run cleanup at the end (soft-deletes the test datasource)
 #   DRY_RUN=false ./scripts/upload-document-e2e.sh
 #
 # Requirements
@@ -222,12 +222,12 @@ FINAL_VALID=$(grpc_d ValidateApiKey "{
 ok "DataSource is healthy and ready to receive document uploads"
 
 if [ "$DRY_RUN" = "false" ]; then
-    info "  Cleaning up test datasource $DATASOURCE_ID ..."
-    grpc_d DeleteDataSource "{\"datasource_id\": \"$DATASOURCE_ID\", \"hard_delete\": true}" | jq .
-    ok "Test datasource deleted"
+    info "  Soft-deleting test datasource $DATASOURCE_ID ..."
+    grpc_d DeleteDataSource "{\"datasource_id\": \"$DATASOURCE_ID\"}" | jq .
+    ok "Test datasource soft-deleted"
 else
     info "  Skipping cleanup (DRY_RUN=true). To remove:"
-    info "  grpcurl -plaintext -d '{\"datasource_id\": \"$DATASOURCE_ID\", \"hard_delete\": true}' \\"
+    info "  grpcurl -plaintext -d '{\"datasource_id\": \"$DATASOURCE_ID\"}' \\"
     info "    $HOST $ADMIN_SVC/DeleteDataSource"
 fi
 

@@ -4,6 +4,7 @@ import ai.pipestream.connector.intake.v1.MutinyConnectorRegistrationServiceGrpc;
 import ai.pipestream.connector.intake.v1.MutinyDataSourceAdminServiceGrpc;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
+import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.common.http.TestHTTPResource;
 import io.quarkus.test.junit.QuarkusIntegrationTest;
 import org.junit.jupiter.api.AfterEach;
@@ -20,6 +21,7 @@ import java.util.concurrent.TimeUnit;
  * All test logic lives in {@link ConnectorTypeCrudBaseTest}.
  */
 @QuarkusIntegrationTest
+@QuarkusTestResource(ConnectorAdminIntegrationTestResource.class)
 public class ConnectorTypeCrudIT extends ConnectorTypeCrudBaseTest {
 
     @TestHTTPResource
