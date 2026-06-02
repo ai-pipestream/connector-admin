@@ -95,7 +95,6 @@ dependencies {
     // WireMock server is used via Docker container in WireMockTestResource, not as a dependency
     // Pipestream libraries - versions managed entirely by the BOM/catalog
     // removed legacy stubs: implementation libs.pipestream.grpc.stubs
-    implementation 'ai.pipestream:quarkus-dynamic-grpc'
     implementation 'ai.pipestream:pipestream-service-registration'
     implementation 'ai.pipestream:pipestream-server'
 
