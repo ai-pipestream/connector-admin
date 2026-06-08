@@ -7,7 +7,8 @@ plugins {
     id 'signing'
     alias(libs.plugins.nmcp.single)
     alias(libs.plugins.axion.release)
-    alias(libs.plugins.proto.toolchain)
+    // Swap the buf proto-toolchain plugin for the quarkus-grpc-gatherer plugin.
+    id 'ai.pipestream.quarkus-grpc-gatherer' version '0.1.2'
     id 'idea'  // IntelliJ IDEA integration
 }
 
@@ -26,20 +27,16 @@ scmVersion {
     }
 }
 
-// Proto toolchain configuration - uses git-proto-workspace mode for cross-module imports
-pipestreamProtos {
-    sourceMode = 'git-proto-workspace'
-    gitRepo = "https://github.com/ai-pipestream/pipestream-protos.git"
-    gitRef = "main"
-    generateMutiny = true
-    generateDescriptors = true
-
-    modules {
-        // Just register module names - workspace mode handles dependencies automatically
-        register("common")
-        register("connector-types")
-        register("intake")
-        register("admin")
+// Proto acquisition + codegen: quarkus-grpc-gatherer stages the buf-workspace
+// modules from pipestream-protos, then quarkus-grpc-zero (WASM protoc) generates
+// Java + Mutiny stubs and writes META-INF/grpc/services.dsc.
+quarkusGrpcGather {
+    git {
+        repo = "https://github.com/ai-pipestream/pipestream-protos.git"
+        ref = "main"
+        subdir = "proto"
+        modules = ['common', 'connector-types', 'intake', 'admin']
+        token = providers.environmentVariable('GH_TOKEN').orNull
     }
 }
 
@@ -77,7 +74,12 @@ dependencies {
     implementation 'io.quarkus:quarkus-arc'
     implementation 'io.quarkus:quarkus-flyway'
     implementation 'org.flywaydb:flyway-database-postgresql'
-    implementation libs.quarkus.grpc
+    // Exclude Quarkus' own grpc codegen to prevent duplicate generation issues.
+    implementation(libs.quarkus.grpc) {
+        exclude group: 'io.quarkus', module: 'quarkus-grpc-codegen'
+    }
+    // Gatherer runtime (pulls quarkus-grpc-zero transitively).
+    implementation 'ai.pipestream:quarkus-grpc-gatherer:0.1.2'
     implementation 'io.quarkus:quarkus-smallrye-stork'
 
     // Kafka dependencies
