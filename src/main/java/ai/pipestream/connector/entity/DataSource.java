@@ -61,7 +61,7 @@ public class DataSource extends PanacheEntityBase {
     /**
      * Drive name for document storage.
      * References Drive entity in FilesystemService.
-     * The Drive contains S3 bucket, KMS keys, and credentials via Infisical.
+     * The Drive carries the S3 bucket and an opaque credentials_ref into the secret store (AWS KMS-backed).
      */
     @Column(name = "drive_name", nullable = false)
     public String driveName;
