@@ -72,7 +72,15 @@ import java.util.stream.Collectors;
 public class DataSourceAdminServiceImpl extends DataSourceAdminServiceGrpc.DataSourceAdminServiceImplBase {
 
     private static final Logger LOG = Logger.getLogger(DataSourceAdminServiceImpl.class);
-    private static final String TEST_ACCOUNT_ID_PREFIX = "test-";
+    /**
+     * Account-id prefixes the test-data cleanup RPC may touch. Both name
+     * ephemeral, harness-minted accounts: {@code test-} (integration tests)
+     * and {@code pipeline-crawl-} (testing-sidecar crawl runs, whose
+     * leaked-run sweep calls this RPC). The RPC is additionally disabled
+     * outright in production profiles.
+     */
+    private static final List<String> EPHEMERAL_ACCOUNT_ID_PREFIXES =
+            List.of("test-", "pipeline-crawl-");
 
     /**
      * Default constructor for gRPC service instantiation.
@@ -368,10 +376,11 @@ public class DataSourceAdminServiceImpl extends DataSourceAdminServiceGrpc.DataS
     }
 
     /**
-     * Clean up test datasources for a specific test account.
+     * Clean up test datasources for a specific ephemeral account.
      * <p>
      * This method is only available in non-production profiles and for accounts
-     * starting with "test-".
+     * whose id starts with an allowlisted ephemeral prefix
+     * ({@code test-} or {@code pipeline-crawl-}).
      *
      * @param request The cleanup request
      * @param observer Stream observer for the cleanup response
@@ -392,7 +401,8 @@ public class DataSourceAdminServiceImpl extends DataSourceAdminServiceGrpc.DataS
             }
             if (!isAllowedTestAccountId(accountId)) {
                 throw Status.INVALID_ARGUMENT
-                    .withDescription("account_id must start with \"" + TEST_ACCOUNT_ID_PREFIX + "\" for test-data cleanup")
+                    .withDescription("account_id must start with one of "
+                            + EPHEMERAL_ACCOUNT_ID_PREFIXES + " for test-data cleanup")
                     .asRuntimeException();
             }
 
@@ -444,19 +454,20 @@ public class DataSourceAdminServiceImpl extends DataSourceAdminServiceGrpc.DataS
     }
 
     private boolean isProductionProfile() {
-        String profile = System.getProperty("quarkus.profile");
-        if (profile == null || profile.isBlank()) {
-            profile = System.getenv("QUARKUS_PROFILE");
-        }
-        if (profile == null || profile.isBlank()) {
-            return false;
-        }
-        String normalizedProfile = profile.trim().toLowerCase(java.util.Locale.ROOT);
-        return "prod".equals(normalizedProfile) || "production".equals(normalizedProfile);
+        // The RESOLVED runtime profile, not the raw quarkus.profile system
+        // property: the property is set to "prod" by the build tooling even
+        // under @QuarkusTest, and is typically absent in a real production
+        // deployment — exactly backwards for this check. Quarkus defaults
+        // the runtime profile to prod, so an undeclared deployment is
+        // correctly locked out.
+        return io.quarkus.runtime.configuration.ConfigUtils.getProfiles().stream()
+                .map(p -> p.trim().toLowerCase(java.util.Locale.ROOT))
+                .anyMatch(p -> "prod".equals(p) || "production".equals(p));
     }
 
     private boolean isAllowedTestAccountId(String accountId) {
-        return accountId != null && accountId.startsWith(TEST_ACCOUNT_ID_PREFIX);
+        return accountId != null
+                && EPHEMERAL_ACCOUNT_ID_PREFIXES.stream().anyMatch(accountId::startsWith);
     }
 
     private <T> void respond(StreamObserver<T> observer, ResponseSupplier<T> supplier) {
